@@ -63,6 +63,57 @@ pub fn is_running() -> Result<bool> {
     }
 }
 
+/// Run the game on the host and wait for it to exit.
+pub fn run_game(launch: &super::GameLaunch) -> Result<std::process::ExitStatus> {
+    let mut cmd = if in_flatpak() {
+        // flatpak-spawn doesn't forward our environment; pass it explicitly.
+        let mut c = Command::new("flatpak-spawn");
+        c.arg("--host").arg(format!("--directory={}", launch.dir.display()));
+        for (k, v) in &launch.env {
+            c.arg(format!("--env={k}={v}"));
+        }
+        c.arg(&launch.program);
+        c
+    } else {
+        let mut c = Command::new(&launch.program);
+        c.envs(launch.env.iter().map(|(k, v)| (k, v))).current_dir(&launch.dir);
+        c
+    };
+    cmd.args(&launch.args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map_err(|e| Error::Steam(format!("couldn't start the game: {e}")))
+}
+
+/// Whether the game's executable is running on the host (it rewrites its prefix's
+/// registry while running, so prefix changes must wait until it's closed).
+/// Wine names each process after its exe, so this matches the process name exactly
+/// rather than searching command lines, which could mention the exe for other reasons.
+pub fn game_running(exe_name: &str) -> Result<bool> {
+    // Linux keeps only the first 15 bytes of a process name.
+    let name: String = exe_name.chars().take(15).collect();
+    let status = host_command("pgrep")
+        .args(["-x", "-i", &regex_escape(&name)])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map_err(|e| Error::Steam(format!("couldn't check whether the game is running: {e}")))?;
+    match status.code() {
+        Some(0) => Ok(true),
+        Some(1) => Ok(false),
+        other => Err(Error::Steam(format!("couldn't check whether the game is running (exit status {other:?})"))),
+    }
+}
+
+fn regex_escape(s: &str) -> String {
+    s.chars()
+        .flat_map(|c| if c.is_ascii_alphanumeric() || c == '_' || c == '-' { vec![c] } else { vec!['\\', c] })
+        .collect()
+}
+
 /// Wait until Steam is running again, e.g. after [`start`].
 pub fn wait_until_running(timeout: Duration) -> Result<bool> {
     let deadline = Instant::now() + timeout;

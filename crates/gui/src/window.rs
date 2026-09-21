@@ -16,6 +16,13 @@ use yaccgl_core::{Error, GAME_NAME, http};
 
 use crate::APP_ID;
 
+const WINDOW_SIZES: [((u32, u32), &str); 4] = [
+    ((1280, 800), "1280 × 800 (Deck)"),
+    ((1920, 1080), "1920 × 1080"),
+    ((2560, 1440), "2560 × 1440"),
+    ((3840, 2160), "3840 × 2160"),
+];
+
 const BUILTIN_TOOLS: [(&str, &str); 3] = [
     ("proton_10", "Proton 10.0"),
     ("proton_experimental", "Proton Experimental"),
@@ -32,6 +39,8 @@ enum Latest {
 enum Task {
     Install,
     Steam,
+    /// The game is running from the Log In button.
+    Game,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -81,9 +90,13 @@ struct Ui {
     tool_row: adw::ComboRow,
     artwork_row: adw::SwitchRow,
     launch_row: adw::EntryRow,
+    single_row: adw::SwitchRow,
+    size_row: adw::ComboRow,
     shortcut_row: adw::ActionRow,
     steam_button: gtk::Button,
     remove_button: gtk::Button,
+    login_row: adw::ActionRow,
+    login_button: gtk::Button,
     prefs: adw::PreferencesDialog,
 }
 
@@ -123,7 +136,7 @@ pub fn build(application: &adw::Application) {
     }));
     app.connect_signals();
     app.reload_steam();
-    app.ensure_game_drive();
+    app.apply_prefix_settings(false);
     app.refresh();
     app.ui.window.present();
     app.check_latest();
@@ -212,8 +225,15 @@ fn build_ui(application: &adw::Application) -> Ui {
     let steam_button = gtk::Button::builder().label("Add").valign(gtk::Align::Center).build();
     shortcut_row.add_suffix(&remove_button);
     shortcut_row.add_suffix(&steam_button);
+    let login_row = adw::ActionRow::builder()
+        .title("Log in to Aniimo")
+        .subtitle("Opens the game here so you can type your email")
+        .build();
+    let login_button = gtk::Button::builder().label("Log In").valign(gtk::Align::Center).build();
+    login_row.add_suffix(&login_button);
     let steam_group = adw::PreferencesGroup::builder().title("Steam").build();
     steam_group.add(&shortcut_row);
+    steam_group.add(&login_row);
 
     let content = gtk::Box::builder()
         .orientation(gtk::Orientation::Vertical)
@@ -261,6 +281,21 @@ fn build_ui(application: &adw::Application) -> Ui {
     shortcut_prefs.add(&artwork_row);
     shortcut_prefs.add(&launch_row);
 
+    let single_row = adw::SwitchRow::builder()
+        .title("Single window")
+        .subtitle("Keeps the game's login window inside the game, so the on-screen keyboard can type into it")
+        .build();
+    let size_row = adw::ComboRow::builder()
+        .title("Window size")
+        .model(&gtk::StringList::new(&WINDOW_SIZES.map(|(_, label)| label)))
+        .build();
+    let game_mode_prefs = adw::PreferencesGroup::builder()
+        .title("Game Mode")
+        .description("Takes effect the next time Aniimo starts.")
+        .build();
+    game_mode_prefs.add(&single_row);
+    game_mode_prefs.add(&size_row);
+
     let repair_row = adw::ActionRow::builder()
         .title("Repair game files")
         .subtitle("Download and unpack the game again")
@@ -272,6 +307,7 @@ fn build_ui(application: &adw::Application) -> Ui {
 
     let prefs_page = adw::PreferencesPage::new();
     prefs_page.add(&shortcut_prefs);
+    prefs_page.add(&game_mode_prefs);
     prefs_page.add(&files_prefs);
     let prefs = adw::PreferencesDialog::builder().title("Preferences").build();
     prefs.add(&prefs_page);
@@ -304,9 +340,13 @@ fn build_ui(application: &adw::Application) -> Ui {
         tool_row,
         artwork_row,
         launch_row,
+        single_row,
+        size_row,
         shortcut_row,
         steam_button,
         remove_button,
+        login_row,
+        login_button,
         prefs,
     }
 }
@@ -339,6 +379,11 @@ impl App {
             glib::spawn_future_local(async move { a.add_to_steam().await });
         });
         let a = self.clone();
+        ui.login_button.connect_clicked(move |_| {
+            let a = a.clone();
+            glib::spawn_future_local(async move { a.log_in().await });
+        });
+        let a = self.clone();
         ui.remove_button.connect_clicked(move |_| {
             let a = a.clone();
             glib::spawn_future_local(async move { a.remove_from_steam().await });
@@ -368,6 +413,23 @@ impl App {
             if !a.populating.get() {
                 a.update_settings(|s| s.artwork = row.is_active());
                 a.hint_update_shortcut();
+            }
+        });
+        let a = self.clone();
+        ui.single_row.connect_active_notify(move |row| {
+            if !a.populating.get() {
+                a.update_settings(|s| s.single_window = row.is_active());
+                a.apply_prefix_settings(true);
+            }
+        });
+        let a = self.clone();
+        ui.size_row.connect_selected_notify(move |row| {
+            if a.populating.get() {
+                return;
+            }
+            if let Some(((w, h), _)) = WINDOW_SIZES.get(row.selected() as usize) {
+                a.update_settings(|s| s.window_size = yaccgl_core::settings::format_size((*w, *h)));
+                a.apply_prefix_settings(true);
             }
         });
         let a = self.clone();
@@ -506,6 +568,10 @@ impl App {
         let selected_tool = tools.iter().position(|t| t.0 == st.settings.compat_tool).unwrap_or(0);
         self.ui.tool_row.set_selected(selected_tool as u32);
         self.ui.artwork_row.set_active(st.settings.artwork);
+        self.ui.single_row.set_active(st.settings.single_window);
+        let size = st.settings.single_window_size().unwrap_or(steam::DEFAULT_WINDOW_SIZE);
+        let size_index = WINDOW_SIZES.iter().position(|(s, _)| *s == size).unwrap_or(0);
+        self.ui.size_row.set_selected(size_index as u32);
         self.ui.launch_row.set_text(&st.settings.launch_options);
         self.populating.set(false);
 
@@ -514,22 +580,69 @@ impl App {
         st.tools = tools;
     }
 
-    /// Shortcuts added before the drive-letter fix (or after the install folder moved)
-    /// get the game's drive mapped here. This doesn't touch Steam's files, so no restart.
-    fn ensure_game_drive(&self) {
-        let (_, appid) = self.target();
+    /// Bring the game's Proton prefix in line with the settings: the game drive (see
+    /// `Steam::map_game_drive`) and single-window mode. Covers shortcuts added by older
+    /// versions and settings changed while the game was running. None of this touches
+    /// Steam's own files, so Steam doesn't need to restart. `explicit` is true when the
+    /// user just changed a setting, so every outcome is reported.
+    fn apply_prefix_settings(&self, explicit: bool) {
+        let (exe, appid) = self.target();
         let Some(user) = self.selected_user() else { return };
-        let (steam, dir) = {
+        let (steam, dir, size, tool) = {
             let st = self.state.borrow();
             let Some(steam) = st.steam.clone() else { return };
-            (steam, st.settings.install_dir.clone())
+            (steam, st.settings.install_dir.clone(), st.settings.single_window_size(), st.settings.compat_tool.clone())
         };
-        if !steam.shortcut_exists(&user, appid) || steam.game_drive_mapped(appid, &dir) {
+        if !steam.shortcut_exists(&user, appid) {
             return;
         }
-        match steam.map_game_drive(appid, &dir) {
-            Ok(()) => self.toast("Fixed the game's free-space check. Restart Aniimo if it's running."),
-            Err(e) => self.toast(&format!("Couldn't set up the game drive: {e}")),
+        if !steam.game_drive_mapped(appid, &dir) {
+            match steam.map_game_drive(appid, &dir) {
+                Ok(()) => self.toast("Fixed the game's free-space check. Restart Aniimo if it's running."),
+                Err(e) => self.toast(&format!("Couldn't set up the game drive: {e}")),
+            }
+        }
+
+        let ready = steam.prefix_ready(appid);
+        if steam.single_window(appid) == size && (ready || size.is_none()) {
+            return;
+        }
+        let exe_name = exe.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        match process::game_running(&exe_name) {
+            Ok(false) => {}
+            Ok(true) => {
+                if explicit {
+                    self.pref_toast("Close Aniimo first. The change will be applied the next time you open this launcher.");
+                }
+                return;
+            }
+            Err(e) => {
+                if explicit {
+                    self.pref_toast(&e.to_string());
+                }
+                return;
+            }
+        }
+        match steam.set_single_window(appid, size, Some(&tool)) {
+            Ok(steam::PrefixChange::Applied) if explicit => self.pref_toast("Saved. It takes effect the next time Aniimo starts."),
+            Ok(steam::PrefixChange::Applied) if size.is_some() => {
+                self.toast("Turned on single-window mode for logging in from Game Mode")
+            }
+            Ok(steam::PrefixChange::Applied) => {}
+            Ok(steam::PrefixChange::Pending) if explicit => {
+                self.pref_toast("Saved. It will be set up after Aniimo's first launch, when you next open this launcher.")
+            }
+            Ok(steam::PrefixChange::Pending) => {}
+            Err(e) => self.toast(&format!("Couldn't change the game's window setting: {e}")),
+        }
+    }
+
+    /// A toast that's visible whether or not the Preferences dialog is open.
+    fn pref_toast(&self, msg: &str) {
+        if self.ui.prefs.is_mapped() {
+            self.ui.prefs.add_toast(adw::Toast::builder().title(msg).timeout(5).build());
+        } else {
+            self.toast(msg);
         }
     }
 
@@ -689,7 +802,11 @@ impl App {
         ui.steam_button.set_sensitive(!busy && has_steam && exe.is_file());
         ui.remove_button.set_visible(shortcut);
         ui.remove_button.set_sensitive(!busy);
+        ui.login_row.set_visible(shortcut && exe.is_file());
+        ui.login_button.set_sensitive(!busy && !process::in_game_mode());
+        ui.login_button.set_label(if st.task == Some(Task::Game) { "Running…" } else { "Log In" });
         ui.user_row.set_sensitive(!busy && st.users.len() > 1);
+        ui.size_row.set_sensitive(st.settings.single_window);
 
         let game_mode = process::in_game_mode();
         ui.banner.set_title(if game_mode {
@@ -917,6 +1034,7 @@ impl App {
                 launch_options: st.settings.launch_options.clone(),
                 compat_tool: Some(st.settings.compat_tool.clone()),
                 artwork: st.settings.artwork,
+                single_window: st.settings.single_window_size(),
             };
             (steam, self.selected_user(), spec)
         };
@@ -951,8 +1069,61 @@ impl App {
                 if let Some(e) = reg.artwork_error {
                     self.toast(&format!("Artwork couldn't be downloaded: {e}"));
                 }
+                if reg.single_window_pending {
+                    self.error(
+                        "One more step for Game Mode",
+                        "Proton hasn't set up this game yet, so single-window mode can't be turned on. \
+                         Start Aniimo once from Steam here in Desktop Mode and close it (you can log in while you're there), \
+                         then open this launcher again. After that, the login window works in Game Mode too.",
+                    );
+                }
             }
             Err(e) => self.error("Couldn't add Aniimo to Steam", &e),
+        }
+    }
+
+    /// Start the game the way Steam does, so the player can log in where typing works.
+    /// It uses the shortcut's prefix, so the login is kept for launches from Steam.
+    async fn log_in(&self) {
+        let (exe, appid) = self.target();
+        let (steam, tool) = {
+            let st = self.state.borrow();
+            let Some(steam) = st.steam.clone() else { return };
+            (steam, st.settings.compat_tool.clone())
+        };
+        let exe_name = exe.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        if gio::spawn_blocking(move || process::game_running(&exe_name)).await.is_ok_and(|r| r.unwrap_or(false)) {
+            self.error("Aniimo is already running", "Close the game first, then press Log In again.");
+            return;
+        }
+        let launch = match steam.game_launch(appid, &exe, &tool) {
+            Ok(l) => l,
+            Err(e) => return self.error("Couldn't start Aniimo", &e.to_string()),
+        };
+
+        self.state.borrow_mut().task = Some(Task::Game);
+        self.ui.progress_label.set_label("Aniimo is running. Log in, then close the game to finish.");
+        self.ui.progress_label.set_visible(true);
+        self.refresh();
+        let started = Instant::now();
+        let result = gio::spawn_blocking(move || process::run_game(&launch)).await;
+        self.state.borrow_mut().task = None;
+        self.ui.progress_label.set_visible(false);
+        // The first launch creates the prefix, so pending prefix settings can go in now.
+        self.apply_prefix_settings(false);
+        self.refresh();
+
+        match result {
+            Ok(Ok(_)) if started.elapsed() < Duration::from_secs(10) => self.error(
+                "Aniimo closed straight away",
+                "The game exited within a few seconds. Try starting it from Steam instead, and check that Proton 10 is installed.",
+            ),
+            Ok(Ok(_)) => self.error(
+                "All set",
+                "If you logged in, Aniimo should remember it when you start it from Steam, in Game Mode too.",
+            ),
+            Ok(Err(e)) => self.error("Couldn't start Aniimo", &e.to_string()),
+            Err(_) => self.error("Couldn't start Aniimo", "An unexpected error occurred."),
         }
     }
 

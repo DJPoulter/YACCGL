@@ -8,6 +8,7 @@ pub mod artwork;
 pub mod binary_vdf;
 pub mod process;
 pub mod text_vdf;
+pub mod wine_reg;
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -20,6 +21,24 @@ pub const DEFAULT_COMPAT_TOOL: &str = "proton_10";
 
 /// Wine drive letter that points at the install directory; see [`Steam::map_game_drive`].
 pub const GAME_DRIVE: &str = "g:";
+
+/// Single-window size used unless the user picks another: the Steam Deck's screen.
+pub const DEFAULT_WINDOW_SIZE: (u32, u32) = (1280, 800);
+
+/// Name of the Wine virtual desktop YACCGL configures; see [`Steam::set_single_window`].
+/// Wine only applies the configured size to the desktop named "Default" (any other
+/// name fills the screen), which is also the name `winetricks vd` uses.
+const WINE_DESKTOP_NAME: &str = "Default";
+const WINE_EXPLORER_KEY: &str = "Software\\Wine\\Explorer";
+const WINE_DESKTOPS_KEY: &str = "Software\\Wine\\Explorer\\Desktops";
+
+/// Outcome of a change to the game's Proton prefix.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PrefixChange {
+    Applied,
+    /// The prefix doesn't exist yet and can't be prepared; retry after the first launch.
+    Pending,
+}
 
 const STEAMID64_BASE: u64 = 76_561_197_960_265_728;
 const FLATPAK_STEAM_ID: &str = "com.valvesoftware.Steam";
@@ -53,6 +72,17 @@ pub struct ShortcutSpec {
     /// Internal compat tool name such as `proton_10`, or `None` to leave Steam's default.
     pub compat_tool: Option<String>,
     pub artwork: bool,
+    /// Single-window size (see [`Steam::set_single_window`]), or `None` to turn it off.
+    pub single_window: Option<(u32, u32)>,
+}
+
+/// A command that starts the game the way Steam does; see [`Steam::game_launch`].
+#[derive(Debug, Clone)]
+pub struct GameLaunch {
+    pub program: PathBuf,
+    pub args: Vec<String>,
+    pub env: Vec<(String, String)>,
+    pub dir: PathBuf,
 }
 
 /// Result of [`Steam::with_closed`].
@@ -73,6 +103,8 @@ pub struct Registered {
     pub artwork: Vec<PathBuf>,
     /// Set when artwork was requested but could not be fetched.
     pub artwork_error: Option<String>,
+    /// Single-window mode couldn't be set up yet; it will be after the first launch.
+    pub single_window_pending: bool,
 }
 
 impl Steam {
@@ -276,7 +308,9 @@ impl Steam {
             self.set_compat_tool(appid, Some(tool))?;
         }
         self.map_game_drive(appid, &spec.start_dir)?;
-        Ok(Registered { appid, created, artwork, artwork_error })
+        let single_window_pending = self.set_single_window(appid, spec.single_window, spec.compat_tool.as_deref())?
+            == PrefixChange::Pending;
+        Ok(Registered { appid, created, artwork, artwork_error, single_window_pending })
     }
 
     /// The Proton prefix Steam uses for a non-Steam shortcut. It always lives in the
@@ -314,6 +348,179 @@ impl Steam {
     pub fn game_drive_mapped(&self, appid: u32, install_dir: &Path) -> bool {
         fs::read_link(self.prefix_dir(appid).join("dosdevices").join(GAME_DRIVE))
             .is_ok_and(|t| t == install_dir)
+    }
+
+    /// Steam library folders: the main one plus any listed in `libraryfolders.vdf`.
+    pub fn library_folders(&self) -> Vec<PathBuf> {
+        let mut out = vec![self.root.clone()];
+        if let Ok(src) = fs::read_to_string(self.root.join("steamapps/libraryfolders.vdf"))
+            && let Ok(root) = text_vdf::parse(&src)
+            && let Some(list) = root.get_obj("libraryfolders")
+        {
+            for (_, v) in &list.0 {
+                if let text_vdf::Value::Obj(o) = v
+                    && let Some(p) = o.get_str("path")
+                {
+                    let p = PathBuf::from(p);
+                    if !out.contains(&p) {
+                        out.push(p);
+                    }
+                }
+            }
+        }
+        out
+    }
+
+    /// Install directory of a compat tool, by its internal name (`proton_10`, `GE-Proton10-15`, ...).
+    pub fn compat_tool_dir(&self, tool: &str) -> Option<PathBuf> {
+        // Custom tools declare their internal names in compatibilitytool.vdf.
+        for entry in fs::read_dir(self.root.join("compatibilitytools.d")).into_iter().flatten().flatten() {
+            let Ok(src) = fs::read_to_string(entry.path().join("compatibilitytool.vdf")) else { continue };
+            let Ok(root) = text_vdf::parse(&src) else { continue };
+            let tools = root.get_obj("compatibilitytools").and_then(|o| o.get_obj("compat_tools"));
+            if let Some(t) = tools.and_then(|t| t.get_obj(tool)) {
+                return Some(entry.path().join(t.get_str("install_path").unwrap_or(".")));
+            }
+        }
+        // Valve's Proton builds are Steam apps named "Proton 10.0", "Proton - Experimental", ...
+        let matches = |name: &str| match tool {
+            "proton_experimental" => name == "Proton - Experimental",
+            "proton_hotfix" => name == "Proton Hotfix",
+            t => t.strip_prefix("proton_").filter(|v| v.chars().all(|c| c.is_ascii_digit())).is_some_and(|v| {
+                name.strip_prefix("Proton ")
+                    .and_then(|rest| rest.strip_prefix(v))
+                    .is_some_and(|rest| !rest.starts_with(|c: char| c.is_ascii_digit()))
+            }),
+        };
+        self.library_folders().into_iter().find_map(|lib| {
+            fs::read_dir(lib.join("steamapps/common"))
+                .into_iter()
+                .flatten()
+                .flatten()
+                .find(|e| e.file_name().to_str().is_some_and(matches))
+                .map(|e| e.path())
+        })
+    }
+
+    /// Install directory of an installed Steam app, from its `appmanifest_<id>.acf`.
+    pub fn app_install_dir(&self, appid: u32) -> Option<PathBuf> {
+        self.library_folders().into_iter().find_map(|lib| {
+            let src = fs::read_to_string(lib.join(format!("steamapps/appmanifest_{appid}.acf"))).ok()?;
+            let root = text_vdf::parse(&src).ok()?;
+            let dir = lib.join("steamapps/common").join(root.get_obj("AppState")?.get_str("installdir")?);
+            dir.is_dir().then_some(dir)
+        })
+    }
+
+    /// How Steam would start `exe` for this shortcut: the compat tool inside the Steam
+    /// Linux Runtime container it asks for, with the same `STEAM_COMPAT_*` environment.
+    /// Using the shortcut's prefix means anything the game saves (like its login) is
+    /// there the next time it's started from Steam.
+    pub fn game_launch(&self, appid: u32, exe: &Path, tool: &str) -> Result<GameLaunch> {
+        let tool_dir = self
+            .compat_tool_dir(tool)
+            .ok_or_else(|| Error::Steam(format!("{tool} isn't installed. Start the game from Steam once so Steam downloads it.")))?;
+        let proton = tool_dir.join("proton");
+        if !proton.is_file() {
+            return Err(Error::Steam(format!("{} doesn't look like a Proton install", tool_dir.display())));
+        }
+        let compat_data = self.prefix_dir(appid).parent().map(Path::to_path_buf).unwrap_or_default();
+        fs::create_dir_all(&compat_data).io_ctx(|| format!("creating {}", compat_data.display()))?;
+
+        // Proton declares the runtime it needs, e.g. "require_tool_appid" "1628350" (sniper).
+        let runtime = fs::read_to_string(tool_dir.join("toolmanifest.vdf"))
+            .ok()
+            .and_then(|src| text_vdf::parse(&src).ok())
+            .and_then(|m| m.get_obj("manifest")?.get_str("require_tool_appid")?.parse::<u32>().ok())
+            .and_then(|id| self.app_install_dir(id));
+        let mut tool_paths = vec![tool_dir.display().to_string()];
+        let mut args = Vec::new();
+        let program = match runtime.as_ref().map(|r| r.join("_v2-entry-point")).filter(|p| p.is_file()) {
+            Some(entry) => {
+                tool_paths.push(runtime.unwrap().display().to_string());
+                args.extend(["--verb=waitforexitandrun".to_string(), "--".to_string(), proton.display().to_string()]);
+                entry
+            }
+            None => proton,
+        };
+        args.extend(["waitforexitandrun".to_string(), exe.display().to_string()]);
+
+        let id = appid.to_string();
+        let install = exe.parent().map_or_else(String::new, |p| p.display().to_string());
+        let env = [
+            ("STEAM_COMPAT_DATA_PATH", compat_data.display().to_string()),
+            ("STEAM_COMPAT_CLIENT_INSTALL_PATH", self.root.display().to_string()),
+            ("STEAM_COMPAT_INSTALL_PATH", install.clone()),
+            ("STEAM_COMPAT_TOOL_PATHS", tool_paths.join(":")),
+            ("STEAM_COMPAT_LIBRARY_PATHS", self.library_folders().iter().map(|p| p.display().to_string()).collect::<Vec<_>>().join(":")),
+            ("STEAM_COMPAT_APP_ID", id.clone()),
+            ("SteamAppId", id.clone()),
+            ("SteamGameId", id),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), v))
+        .collect();
+        Ok(GameLaunch { program, args, env, dir: PathBuf::from(install) })
+    }
+
+    /// Whether Proton has set up the game's prefix yet (it does so on first launch).
+    pub fn prefix_ready(&self, appid: u32) -> bool {
+        self.prefix_dir(appid).join("user.reg").is_file()
+    }
+
+    /// The single-window size YACCGL configured in the game's prefix, if any.
+    pub fn single_window(&self, appid: u32) -> Option<(u32, u32)> {
+        let reg = wine_reg::RegFile::parse(&fs::read_to_string(self.prefix_dir(appid).join("user.reg")).ok()?);
+        if reg.get(WINE_EXPLORER_KEY, "Desktop").as_deref() != Some(WINE_DESKTOP_NAME) {
+            return None;
+        }
+        let size = reg.get(WINE_DESKTOPS_KEY, WINE_DESKTOP_NAME)?;
+        let (w, h) = size.split_once('x')?;
+        Some((w.trim().parse().ok()?, h.trim().parse().ok()?))
+    }
+
+    /// Turn single-window mode on (`Some(size)`) or off for the game's prefix.
+    ///
+    /// Wine's virtual desktop puts every window the game opens, including its login
+    /// window, inside one window. In Game Mode, gamescope only gives keyboard focus to
+    /// the game's main window, so without this the on-screen keyboard can't type into
+    /// the login window.
+    ///
+    /// Before the first launch there's no prefix yet. Proton builds a new prefix by
+    /// copying its template and skipping files that already exist, so we seed
+    /// `user.reg` from the compat tool's template with the setting added. If that
+    /// template doesn't exist yet either, this returns [`PrefixChange::Pending`].
+    /// Wine rewrites `user.reg` while the game runs, so the game must be closed.
+    pub fn set_single_window(&self, appid: u32, size: Option<(u32, u32)>, tool: Option<&str>) -> Result<PrefixChange> {
+        let pfx = self.prefix_dir(appid);
+        let path = pfx.join("user.reg");
+        if !path.is_file() {
+            if size.is_none() {
+                return Ok(PrefixChange::Applied);
+            }
+            let template = tool
+                .and_then(|t| self.compat_tool_dir(t))
+                .map(|d| d.join("files/share/default_pfx/user.reg"))
+                .filter(|p| p.is_file());
+            let Some(template) = template else { return Ok(PrefixChange::Pending) };
+            fs::create_dir_all(&pfx).io_ctx(|| format!("creating {}", pfx.display()))?;
+            fs::copy(&template, &path).io_ctx(|| format!("creating {}", path.display()))?;
+        }
+        let src = fs::read_to_string(&path).io_ctx(|| format!("reading {}", path.display()))?;
+        let mut reg = wine_reg::RegFile::parse(&src);
+        match size {
+            Some((w, h)) => {
+                reg.set(WINE_EXPLORER_KEY, "Desktop", WINE_DESKTOP_NAME);
+                reg.set(WINE_DESKTOPS_KEY, WINE_DESKTOP_NAME, &format!("{w}x{h}"));
+            }
+            // Leave any other virtual desktop the user set up themselves.
+            None if reg.get(WINE_EXPLORER_KEY, "Desktop").as_deref() == Some(WINE_DESKTOP_NAME) => {
+                reg.remove(WINE_EXPLORER_KEY, "Desktop");
+            }
+            None => return Ok(PrefixChange::Applied),
+        }
+        write_backed_up(&path, reg.serialize().as_bytes())?;
+        Ok(PrefixChange::Applied)
     }
 
     /// Remove the shortcut, its compat tool mapping and artwork. Steam must not be running.
@@ -543,6 +750,7 @@ mod tests {
             launch_options: String::new(),
             compat_tool: Some(DEFAULT_COMPAT_TOOL.into()),
             artwork: false,
+            single_window: Some(DEFAULT_WINDOW_SIZE),
         }
     }
 
@@ -646,6 +854,115 @@ mod tests {
         std::os::unix::fs::symlink("/", link.with_file_name("z:")).unwrap();
         steam.map_game_drive(42, &a).unwrap();
         assert_eq!(fs::read_link(link.with_file_name("z:")).unwrap(), PathBuf::from("/"));
+    }
+
+    const TEMPLATE_REG: &str = "WINE REGISTRY Version 2\n;; All keys relative to \\\\User\\\\S-1-5-21-0-0-0-1000\n\n#arch=win64\n\n[Control Panel\\\\Desktop] 1700000000\n\"FontSmoothing\"=\"2\"\n";
+
+    /// Installs a fake "Proton 10.0" in a second Steam library with a template prefix.
+    fn fake_proton(home: &Path, steam: &Steam) -> PathBuf {
+        let lib = home.join("sdcard/SteamLibrary");
+        let proton = lib.join("steamapps/common/Proton 10.0");
+        fs::create_dir_all(proton.join("files/share/default_pfx")).unwrap();
+        fs::write(proton.join("files/share/default_pfx/user.reg"), TEMPLATE_REG).unwrap();
+        fs::create_dir_all(steam.root.join("steamapps/common/Proton 100.0")).unwrap();
+        fs::write(
+            steam.root.join("steamapps/libraryfolders.vdf"),
+            format!(
+                "\"libraryfolders\"\n{{\n\t\"0\"\n\t{{\n\t\t\"path\"\t\t\"{}\"\n\t}}\n\t\"1\"\n\t{{\n\t\t\"path\"\t\t\"{}\"\n\t}}\n}}\n",
+                steam.root.display(),
+                lib.display()
+            ),
+        )
+        .unwrap();
+        proton
+    }
+
+    #[test]
+    fn finds_compat_tool_dirs() {
+        let home = tempfile::tempdir().unwrap();
+        let steam = fake_steam(home.path());
+        let proton = fake_proton(home.path(), &steam);
+        assert_eq!(steam.compat_tool_dir("proton_10"), Some(proton));
+        // "Proton 100.0" must not match proton_10, and missing tools aren't invented.
+        assert_eq!(steam.compat_tool_dir("proton_9"), None);
+        assert!(steam.compat_tool_dir("proton_100").unwrap().ends_with("Proton 100.0"));
+    }
+
+    #[test]
+    fn game_launch_matches_steams_command() {
+        let home = tempfile::tempdir().unwrap();
+        let steam = fake_steam(home.path());
+        let proton = fake_proton(home.path(), &steam);
+        let exe = home.path().join("Games/Aniimo/Aniimo.exe");
+
+        // Proton present but not its runtime: run Proton directly.
+        fs::write(proton.join("proton"), "#!/bin/sh\n").unwrap();
+        fs::write(proton.join("toolmanifest.vdf"), "\"manifest\"\n{\n\t\"require_tool_appid\"\t\t\"1628350\"\n}\n").unwrap();
+        let l = steam.game_launch(99, &exe, "proton_10").unwrap();
+        assert_eq!(l.program, proton.join("proton"));
+        assert_eq!(l.args, vec!["waitforexitandrun".to_string(), exe.display().to_string()]);
+
+        // With the runtime installed (in the main library), go through its entry point.
+        let runtime = steam.root.join("steamapps/common/SteamLinuxRuntime_sniper");
+        fs::create_dir_all(&runtime).unwrap();
+        fs::write(runtime.join("_v2-entry-point"), "#!/bin/sh\n").unwrap();
+        fs::write(
+            steam.root.join("steamapps/appmanifest_1628350.acf"),
+            "\"AppState\"\n{\n\t\"appid\"\t\t\"1628350\"\n\t\"installdir\"\t\t\"SteamLinuxRuntime_sniper\"\n}\n",
+        )
+        .unwrap();
+        let l = steam.game_launch(99, &exe, "proton_10").unwrap();
+        assert_eq!(l.program, runtime.join("_v2-entry-point"));
+        assert_eq!(l.args[..3], ["--verb=waitforexitandrun".to_string(), "--".into(), proton.join("proton").display().to_string()]);
+        let env: std::collections::HashMap<_, _> = l.env.into_iter().collect();
+        assert_eq!(env["STEAM_COMPAT_DATA_PATH"], steam.root.join("steamapps/compatdata/99").display().to_string());
+        assert_eq!(env["STEAM_COMPAT_CLIENT_INSTALL_PATH"], steam.root.display().to_string());
+        assert_eq!(env["SteamGameId"], "99");
+        assert!(env["STEAM_COMPAT_TOOL_PATHS"].contains("SteamLinuxRuntime_sniper"));
+        assert!(steam.root.join("steamapps/compatdata/99").is_dir());
+
+        assert!(steam.game_launch(99, &exe, "proton_9").is_err());
+    }
+
+    #[test]
+    fn single_window_before_first_launch_seeds_from_template() {
+        let home = tempfile::tempdir().unwrap();
+        let steam = fake_steam(home.path());
+        assert_eq!(steam.set_single_window(7, Some((1280, 800)), Some("proton_10")).unwrap(), PrefixChange::Pending);
+        assert!(!steam.prefix_ready(7));
+
+        fake_proton(home.path(), &steam);
+        assert_eq!(steam.set_single_window(7, Some((1280, 800)), Some("proton_10")).unwrap(), PrefixChange::Applied);
+        assert!(steam.prefix_ready(7));
+        assert_eq!(steam.single_window(7), Some((1280, 800)));
+        let reg = fs::read_to_string(steam.prefix_dir(7).join("user.reg")).unwrap();
+        assert!(reg.starts_with(TEMPLATE_REG), "template content must be kept as-is");
+        assert!(reg.contains("[Software\\\\Wine\\\\Explorer] "));
+        assert!(reg.contains("\"Desktop\"=\"Default\""));
+        assert!(reg.contains("\"Default\"=\"1280x800\""));
+    }
+
+    #[test]
+    fn single_window_toggles_on_existing_prefix_and_respects_user_desktops() {
+        let home = tempfile::tempdir().unwrap();
+        let steam = fake_steam(home.path());
+        fs::create_dir_all(steam.prefix_dir(7)).unwrap();
+        fs::write(steam.prefix_dir(7).join("user.reg"), TEMPLATE_REG).unwrap();
+
+        steam.set_single_window(7, Some((1920, 1080)), None).unwrap();
+        assert_eq!(steam.single_window(7), Some((1920, 1080)));
+        steam.set_single_window(7, None, None).unwrap();
+        assert_eq!(steam.single_window(7), None);
+
+        // A differently named virtual desktop the user set up themselves stays.
+        let path = steam.prefix_dir(7).join("user.reg");
+        let mut reg = wine_reg::RegFile::parse(&fs::read_to_string(&path).unwrap());
+        reg.set(WINE_EXPLORER_KEY, "Desktop", "Mine");
+        fs::write(&path, reg.serialize()).unwrap();
+        steam.set_single_window(7, None, None).unwrap();
+        assert_eq!(steam.single_window(7), None);
+        let reg = wine_reg::RegFile::parse(&fs::read_to_string(&path).unwrap());
+        assert_eq!(reg.get(WINE_EXPLORER_KEY, "Desktop").as_deref(), Some("Mine"));
     }
 
     #[test]

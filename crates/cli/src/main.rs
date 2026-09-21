@@ -36,6 +36,9 @@ enum Cmd {
     /// Manage the Steam shortcut.
     #[command(subcommand)]
     Steam(SteamCmd),
+    /// Start the game the way Steam does and wait for it to close, e.g. to log in from
+    /// Desktop Mode. Uses the shortcut's Proton prefix, so the login carries over.
+    Launch,
 }
 
 #[derive(Subcommand)]
@@ -53,6 +56,12 @@ enum SteamCmd {
         launch_options: String,
         #[arg(long)]
         no_artwork: bool,
+        /// Don't keep the game's windows in one (needed to type in its login window in Game Mode).
+        #[arg(long)]
+        no_single_window: bool,
+        /// Size of the single game window, e.g. 1920x1080.
+        #[arg(long, value_parser = parse_window_size)]
+        window_size: Option<String>,
         /// Close Steam first if it is running, and start it again afterwards.
         #[arg(long)]
         restart_steam: bool,
@@ -78,10 +87,22 @@ fn main() -> Result<()> {
         Cmd::Status => status(&settings),
         Cmd::Install { repair } => install(&mut settings, repair),
         Cmd::Steam(SteamCmd::Users) => users(),
-        Cmd::Steam(SteamCmd::Add { user, tool, launch_options, no_artwork, restart_steam }) => {
+        Cmd::Steam(SteamCmd::Add {
+            user,
+            tool,
+            launch_options,
+            no_artwork,
+            no_single_window,
+            window_size,
+            restart_steam,
+        }) => {
             settings.compat_tool = tool;
             settings.launch_options = launch_options;
             settings.artwork = !no_artwork;
+            settings.single_window = !no_single_window;
+            if let Some(size) = window_size {
+                settings.window_size = size;
+            }
             settings.steam_user = user.or(settings.steam_user);
             steam_add(&settings, restart_steam)?;
             settings.save()?;
@@ -91,7 +112,14 @@ fn main() -> Result<()> {
             steam_remove(&settings, user.or(settings.steam_user), restart_steam)
         }
         Cmd::Steam(SteamCmd::Doctor) => steam_doctor(&settings),
+        Cmd::Launch => launch(&settings),
     }
+}
+
+fn parse_window_size(s: &str) -> Result<String, String> {
+    yaccgl_core::settings::parse_size(s)
+        .map(yaccgl_core::settings::format_size)
+        .ok_or_else(|| format!("expected WIDTHxHEIGHT, like 1280x800, got {s:?}"))
 }
 
 fn absolute(p: &PathBuf) -> Result<PathBuf> {
@@ -220,6 +248,7 @@ fn steam_add(settings: &Settings, restart: bool) -> Result<()> {
         launch_options: settings.launch_options.clone(),
         compat_tool: Some(settings.compat_tool.clone()),
         artwork: settings.artwork,
+        single_window: settings.single_window_size(),
     };
     let appid = steam::appid_for(&spec.exe, &spec.name);
     if restart && process::is_running()? {
@@ -239,6 +268,9 @@ fn steam_add(settings: &Settings, restart: bool) -> Result<()> {
         user.account_id,
         settings.compat_tool
     );
+    if reg.single_window_pending {
+        println!("Single-window mode will be set up after Aniimo's first launch: run this command again then.");
+    }
     if let Some(e) = reg.artwork_error {
         println!("Artwork could not be downloaded: {e}");
     } else if settings.artwork {
@@ -257,6 +289,31 @@ fn steam_remove(settings: &Settings, user: Option<u32>, restart: bool) -> Result
     )?;
     check_restart(&applied)?;
     println!("Removed shortcut {appid}.");
+    Ok(())
+}
+
+fn launch(settings: &Settings) -> Result<()> {
+    let exe = exe_path(settings);
+    if !exe.is_file() {
+        bail!("{} not found. Install the game first.", exe.display());
+    }
+    let appid = steam::appid_for(&exe, GAME_NAME);
+    let (steam, user) = pick_steam(settings.steam_user)?;
+    if !steam.shortcut_exists(&user, appid) {
+        bail!("Add the game to Steam first (`yaccgl steam add`), so it uses the same Proton prefix.");
+    }
+    let exe_name = exe.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    if process::game_running(&exe_name)? {
+        bail!("Aniimo is already running.");
+    }
+    let launch = steam.game_launch(appid, &exe, &settings.compat_tool)?;
+    println!("Starting Aniimo. Log in, then close the game.");
+    let status = process::run_game(&launch)?;
+    println!("Aniimo closed ({status}).");
+    // The first launch creates the prefix; finish any prefix setup that was waiting for it.
+    if settings.single_window_size().is_some() && steam.single_window(appid).is_none() {
+        steam.set_single_window(appid, settings.single_window_size(), Some(&settings.compat_tool))?;
+    }
     Ok(())
 }
 
@@ -288,6 +345,14 @@ fn steam_doctor(settings: &Settings) -> Result<()> {
                 Ok(t) if t == settings.install_dir => format!("-> {} (ok)", t.display()),
                 Ok(t) => format!("-> {} (WRONG, expected {})", t.display(), settings.install_dir.display()),
                 Err(_) => "not mapped (the game will see the wrong free space; run `yaccgl steam add`)".into(),
+            }
+        );
+        println!(
+            "  Single window: {}",
+            match (steam.prefix_ready(appid), steam.single_window(appid)) {
+                (false, _) => "prefix not created yet (launch the game once)".to_string(),
+                (true, Some((w, h))) => format!("on, {w}x{h}"),
+                (true, None) => "off".to_string(),
             }
         );
         for user in steam.users() {

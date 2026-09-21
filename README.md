@@ -34,9 +34,23 @@ official launcher entirely: it talks to the same version API and CDN the launche
    because Steam overwrites its shortcut list when it exits.
 7. Go back to Game Mode. Aniimo is in your library, set to run with Proton 10.
 
-The Steam account, Proton version, library artwork, launch options and **Repair** are under
-**☰ → Preferences**. After changing a shortcut setting, press **Update** next to the Steam
-shortcut to apply it.
+The Steam account, Proton version, library artwork, launch options, single-window mode and
+**Repair** are under **☰ → Preferences**. After changing a shortcut setting, press **Update**
+next to the Steam shortcut to apply it.
+
+### Logging in on the Steam Deck
+
+The game asks for your email in a separate window. In Game Mode, Steam only sends keyboard
+input to the game's main window, so the on-screen keyboard can't type into it. Two fixes are
+built in:
+
+- **Log In button:** in Desktop Mode, press **Log In** next to the Steam shortcut. The game
+  opens with the same Proton setup Steam uses, so the login is saved where Steam's launches look
+  for it. Log in, close the game, and it should remember you when you start it from Steam, in
+  Game Mode too.
+- **Single window** (on by default, in Preferences): the game runs inside one window (1280×800
+  on the Deck), so its login window shows inside the game and the on-screen keyboard
+  (**Steam + X**) types into it. Tap the email field first.
 
 To uninstall the launcher: `flatpak uninstall io.github.DJPoulter.YACCGL`. The game folder and the
 Steam shortcut are left alone; remove the shortcut first with the trash button if you want it gone.
@@ -70,6 +84,7 @@ yaccgl steam users                    # list Steam accounts
 yaccgl steam add --restart-steam      # add/update the shortcut, force Proton 10, add artwork
 yaccgl steam remove --restart-steam
 yaccgl steam doctor                   # troubleshooting: Steam detection and every shortcut
+yaccgl launch                         # start the game like Steam does, e.g. to log in
 ```
 
 ## How it works
@@ -87,6 +102,11 @@ yaccgl steam doctor                   # troubleshooting: Steam detection and eve
   (`steamapps/compatdata/<id>/pfx/dosdevices/g:`). Steam runs Proton in a container whose root
   is a RAM disk, so without this the game runs from `Z:\` and its free-space check sees only
   a few GB. With it, the game runs from `G:\` and sees the real disk.
+- Single-window mode turns on Wine's virtual desktop in the prefix's `user.reg`
+  (`HKCU\Software\Wine\Explorer`). Before the game's first launch, that file is created from
+  Proton's own template with the setting added; Proton copies the rest of the prefix around it.
+- **Log In** runs the game the way Steam does: Proton inside the Steam Linux Runtime, with the
+  shortcut's `STEAM_COMPAT_*` environment, so it uses the same prefix.
 
 ## Development
 
