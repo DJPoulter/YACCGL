@@ -34,6 +34,10 @@ official launcher entirely: it talks to the same version API and CDN the launche
    because Steam overwrites its shortcut list when it exits.
 7. Go back to Game Mode. Aniimo is in your library, set to run with Proton 10.
 
+The Steam account, Proton version, library artwork, launch options and **Repair** are under
+**☰ → Preferences**. After changing a shortcut setting, press **Update** next to the Steam
+shortcut to apply it.
+
 To uninstall the launcher: `flatpak uninstall io.github.DJPoulter.YACCGL`. The game folder and the
 Steam shortcut are left alone; remove the shortcut first with the trash button if you want it gone.
 

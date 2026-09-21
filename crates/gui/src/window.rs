@@ -76,7 +76,6 @@ struct Ui {
     refresh: gtk::Button,
     dir_row: adw::ActionRow,
     dir_button: gtk::Button,
-    space_row: adw::ActionRow,
     version_row: adw::ActionRow,
     repair: gtk::Button,
     user_row: adw::ComboRow,
@@ -86,6 +85,7 @@ struct Ui {
     shortcut_row: adw::ActionRow,
     steam_button: gtk::Button,
     remove_button: gtk::Button,
+    prefs: adw::PreferencesDialog,
 }
 
 pub struct Inner {
@@ -132,6 +132,7 @@ pub fn build(application: &adw::Application) {
 
 fn build_ui(application: &adw::Application) -> Ui {
     let menu = gio::Menu::new();
+    menu.append(Some("Preferences"), Some("win.preferences"));
     menu.append(Some("Open Install Folder"), Some("win.open-folder"));
     menu.append(Some("About"), Some("win.about"));
     let menu_button = gtk::MenuButton::builder()
@@ -150,7 +151,8 @@ fn build_ui(application: &adw::Application) -> Ui {
 
     let banner = adw::Banner::new("");
 
-    let status_title = gtk::Label::builder().label(GAME_NAME).css_classes(["title-1"]).build();
+    // Status and the one "next step" button.
+    let status_title = gtk::Label::builder().label(GAME_NAME).css_classes(["title-2"]).build();
     let status_detail = gtk::Label::builder()
         .css_classes(["dim-label"])
         .wrap(true)
@@ -170,16 +172,11 @@ fn build_ui(application: &adw::Application) -> Ui {
         .orientation(gtk::Orientation::Horizontal)
         .spacing(12)
         .halign(gtk::Align::Center)
-        .margin_top(12)
+        .margin_top(6)
         .build();
     buttons.append(&primary);
     buttons.append(&cancel);
-
-    let hero = gtk::Box::builder()
-        .orientation(gtk::Orientation::Vertical)
-        .spacing(6)
-        .margin_top(12)
-        .build();
+    let hero = gtk::Box::builder().orientation(gtk::Orientation::Vertical).spacing(6).build();
     for w in [
         status_title.upcast_ref::<gtk::Widget>(),
         status_detail.upcast_ref(),
@@ -190,7 +187,8 @@ fn build_ui(application: &adw::Application) -> Ui {
         hero.append(w);
     }
 
-    let dir_row = adw::ActionRow::builder().title("Install location").subtitle_selectable(true).build();
+    // Section 1: the game.
+    let dir_row = adw::ActionRow::builder().title("Install location").build();
     let dir_button = gtk::Button::builder()
         .icon_name("folder-open-symbolic")
         .valign(gtk::Align::Center)
@@ -199,62 +197,38 @@ fn build_ui(application: &adw::Application) -> Ui {
         .build();
     dir_row.add_suffix(&dir_button);
     dir_row.set_activatable_widget(Some(&dir_button));
-    let space_row = adw::ActionRow::builder().title("Free space").build();
     let version_row = adw::ActionRow::builder().title("Version").build();
-    let repair = gtk::Button::builder()
-        .label("Repair")
-        .valign(gtk::Align::Center)
-        .tooltip_text("Download and unpack the game files again")
-        .build();
-    version_row.add_suffix(&repair);
-    let install_group = adw::PreferencesGroup::builder().title("Installation").build();
-    install_group.add(&dir_row);
-    install_group.add(&space_row);
-    install_group.add(&version_row);
+    let game_group = adw::PreferencesGroup::builder().title("Game").build();
+    game_group.add(&dir_row);
+    game_group.add(&version_row);
 
-    let user_row = adw::ComboRow::builder().title("Steam account").build();
-    let tool_row = adw::ComboRow::builder()
-        .title("Proton version")
-        .subtitle("Aniimo currently only runs on Proton 10")
-        .build();
-    let artwork_row = adw::SwitchRow::builder()
-        .title("Library artwork")
-        .subtitle("Use the game's official Steam artwork")
-        .build();
-    let launch_row = adw::EntryRow::builder().title("Launch options").show_apply_button(true).build();
-    let shortcut_row = adw::ActionRow::builder().title("Steam shortcut").build();
+    // Section 2: Steam.
+    let shortcut_row = adw::ActionRow::builder().title("Library shortcut").build();
     let remove_button = gtk::Button::builder()
         .icon_name("user-trash-symbolic")
         .valign(gtk::Align::Center)
         .tooltip_text("Remove from Steam")
         .css_classes(["flat"])
         .build();
-    let steam_button = gtk::Button::builder().label("Add to Steam").valign(gtk::Align::Center).build();
+    let steam_button = gtk::Button::builder().label("Add").valign(gtk::Align::Center).build();
     shortcut_row.add_suffix(&remove_button);
     shortcut_row.add_suffix(&steam_button);
-    let steam_group = adw::PreferencesGroup::builder()
-        .title("Steam")
-        .description("Settings here are applied when you add or update the shortcut.")
-        .build();
+    let steam_group = adw::PreferencesGroup::builder().title("Steam").build();
     steam_group.add(&shortcut_row);
-    steam_group.add(&user_row);
-    steam_group.add(&tool_row);
-    steam_group.add(&artwork_row);
-    steam_group.add(&launch_row);
 
     let content = gtk::Box::builder()
         .orientation(gtk::Orientation::Vertical)
-        .spacing(24)
+        .spacing(18)
         .margin_start(16)
         .margin_end(16)
         .margin_top(12)
-        .margin_bottom(24)
+        .margin_bottom(18)
         .build();
     content.append(&hero);
-    content.append(&install_group);
+    content.append(&game_group);
     content.append(&steam_group);
 
-    let clamp = adw::Clamp::builder().maximum_size(640).child(&content).build();
+    let clamp = adw::Clamp::builder().maximum_size(600).child(&content).build();
     let scroller = gtk::ScrolledWindow::builder()
         .hscrollbar_policy(gtk::PolicyType::Never)
         .vexpand(true)
@@ -268,12 +242,47 @@ fn build_ui(application: &adw::Application) -> Ui {
     view.add_top_bar(&banner);
     view.set_content(Some(&toasts));
 
+    // Settings live in their own dialog to keep the main window short.
+    let user_row = adw::ComboRow::builder().title("Steam account").build();
+    let tool_row = adw::ComboRow::builder()
+        .title("Proton version")
+        .subtitle("Aniimo currently only runs on Proton 10")
+        .build();
+    let artwork_row = adw::SwitchRow::builder()
+        .title("Library artwork")
+        .subtitle("Use the game's official Steam artwork")
+        .build();
+    let launch_row = adw::EntryRow::builder().title("Launch options").show_apply_button(true).build();
+    let shortcut_prefs = adw::PreferencesGroup::builder()
+        .title("Steam shortcut")
+        .description("Applied when you add or update the shortcut.")
+        .build();
+    shortcut_prefs.add(&user_row);
+    shortcut_prefs.add(&tool_row);
+    shortcut_prefs.add(&artwork_row);
+    shortcut_prefs.add(&launch_row);
+
+    let repair_row = adw::ActionRow::builder()
+        .title("Repair game files")
+        .subtitle("Download and unpack the game again")
+        .build();
+    let repair = gtk::Button::builder().label("Repair").valign(gtk::Align::Center).build();
+    repair_row.add_suffix(&repair);
+    let files_prefs = adw::PreferencesGroup::builder().title("Game files").build();
+    files_prefs.add(&repair_row);
+
+    let prefs_page = adw::PreferencesPage::new();
+    prefs_page.add(&shortcut_prefs);
+    prefs_page.add(&files_prefs);
+    let prefs = adw::PreferencesDialog::builder().title("Preferences").build();
+    prefs.add(&prefs_page);
+
     let window = adw::ApplicationWindow::builder()
         .application(application)
         .title("Yet Another Creature Collector Game Launcher")
         .icon_name(APP_ID)
-        .default_width(720)
-        .default_height(780)
+        .default_width(640)
+        .default_height(600)
         .content(&view)
         .build();
 
@@ -290,7 +299,6 @@ fn build_ui(application: &adw::Application) -> Ui {
         refresh,
         dir_row,
         dir_button,
-        space_row,
         version_row,
         repair,
         user_row,
@@ -300,6 +308,7 @@ fn build_ui(application: &adw::Application) -> Ui {
         shortcut_row,
         steam_button,
         remove_button,
+        prefs,
     }
 }
 
@@ -321,7 +330,10 @@ impl App {
             glib::spawn_future_local(async move { a.choose_dir().await });
         });
         let a = self.clone();
-        ui.repair.connect_clicked(move |_| a.start_install(true));
+        ui.repair.connect_clicked(move |_| {
+            a.ui.prefs.close();
+            a.start_install(true);
+        });
         let a = self.clone();
         ui.steam_button.connect_clicked(move |_| {
             let a = a.clone();
@@ -349,20 +361,30 @@ impl App {
             let tool = a.state.borrow().tools.get(row.selected() as usize).map(|t| t.0.clone());
             if let Some(tool) = tool {
                 a.update_settings(|s| s.compat_tool = tool);
+                a.hint_update_shortcut();
             }
         });
         let a = self.clone();
         ui.artwork_row.connect_active_notify(move |row| {
             if !a.populating.get() {
                 a.update_settings(|s| s.artwork = row.is_active());
+                a.hint_update_shortcut();
             }
         });
         let a = self.clone();
         ui.launch_row.connect_apply(move |row| {
             let text = row.text().to_string();
             a.update_settings(|s| s.launch_options = text);
-            a.toast("Launch options saved. Update the Steam shortcut to apply them.");
+            a.hint_update_shortcut();
         });
+
+        let prefs = gio::SimpleAction::new("preferences", None);
+        let a = self.clone();
+        prefs.connect_activate(move |_, _| a.ui.prefs.present(Some(&a.ui.window)));
+        ui.window.add_action(&prefs);
+        if let Some(app) = ui.window.application() {
+            app.set_accels_for_action("win.preferences", &["<Control>comma"]);
+        }
 
         let open = gio::SimpleAction::new("open-folder", None);
         let a = self.clone();
@@ -408,6 +430,23 @@ impl App {
             self.toast(&format!("Couldn't save settings: {e}"));
         }
         self.refresh();
+    }
+
+    /// After a shortcut setting changes, point at the button that applies it.
+    fn hint_update_shortcut(&self) {
+        let (_, appid) = self.target();
+        let exists = {
+            let st = self.state.borrow();
+            st.steam.as_ref().zip(self.selected_user()).is_some_and(|(s, u)| s.shortcut_exists(&u, appid))
+        };
+        if exists {
+            self.ui.prefs.add_toast(
+                adw::Toast::builder()
+                    .title("Saved. Press Update next to the Steam shortcut to apply it.")
+                    .timeout(4)
+                    .build(),
+            );
+        }
     }
 
     fn toast(&self, msg: &str) {
@@ -537,10 +576,9 @@ impl App {
         let mut st = self.state.borrow_mut();
         let dir = st.settings.install_dir.clone();
 
-        ui.dir_row.set_subtitle(&dir.display().to_string());
-        ui.space_row.set_subtitle(&match space::available(&dir) {
-            Some(free) => format!("{} available", human(free)),
-            None => "Unknown".into(),
+        ui.dir_row.set_subtitle(&match space::available(&dir) {
+            Some(free) => format!("{} · {} free", dir.display(), human(free)),
+            None => dir.display().to_string(),
         });
 
         let installed = install::read_state(&dir);
@@ -557,7 +595,7 @@ impl App {
             (Some(Status::NotInstalled), Latest::Known(pkg), _) => (
                 "Not installed".to_string(),
                 format!(
-                    "Version {} · {} download. The game fetches the rest of its data (about {}) the first time it starts.",
+                    "Version {} · {} download, about {} after the game's first start",
                     pkg.version_number,
                     pkg.ext.archive_size.map_or("unknown size".into(), human),
                     pkg.package_file_size.map_or("40 GB".into(), human),
@@ -569,12 +607,12 @@ impl App {
                 format!("{} → {}", installed.package.version_number, latest.version_number),
                 Action::Update,
             ),
-            (Some(Status::UpToDate(s)), _, _) => (
+            (Some(Status::UpToDate(_)), _, _) => (
                 if shortcut { "Ready to play".to_string() } else { "Installed".to_string() },
                 if shortcut {
-                    format!("Version {} · launch it from your Steam library", s.package.version_number)
+                    "Launch it from your Steam library".to_string()
                 } else {
-                    format!("Version {} · add it to Steam to play", s.package.version_number)
+                    "Add it to Steam to play".to_string()
                 },
                 if shortcut { Action::Play } else { Action::AddToSteam },
             ),
@@ -629,13 +667,17 @@ impl App {
         };
         ui.shortcut_row.set_subtitle(&match (&st.steam, shortcut) {
             (None, _) => "Steam was not found".into(),
-            (Some(_), false) => "Not added".into(),
+            (Some(_), false) if !exe.is_file() => "Install the game first".into(),
+            (Some(_), false) => "Not added yet".into(),
             (Some(_), true) => match &tool {
                 Some(t) => format!("Added · {}", tool_label(t)),
                 None => "Added · Steam's default Proton".into(),
             },
         });
-        ui.steam_button.set_label(if shortcut { "Update" } else { "Add to Steam" });
+        // Before the shortcut exists, the main button is the way to add it.
+        ui.steam_button.set_label("Update");
+        ui.steam_button.set_tooltip_text(Some("Apply the current preferences to the Steam shortcut"));
+        ui.steam_button.set_visible(shortcut);
 
         let busy = st.task.is_some();
         let has_steam = st.steam.is_some() && user.is_some();

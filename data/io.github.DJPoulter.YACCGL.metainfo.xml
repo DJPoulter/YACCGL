@@ -36,6 +36,11 @@
     <display_length compare="ge">360</display_length>
   </requires>
   <releases>
+    <release version="0.1.3" date="2026-09-21">
+      <description>
+        <p>A shorter main window that fits the Steam Deck screen: a Game section and a Steam section, with the Steam account, Proton version, artwork, launch options and Repair moved to Preferences.</p>
+      </description>
+    </release>
     <release version="0.1.2" date="2026-09-21">
       <description>
         <p>Fixes the game saying there isn't enough free space (about 7 GB) on the Steam Deck. The install folder now gets its own drive letter in the game's Proton prefix, so the game checks the right disk. Existing installs are fixed the next time the launcher is opened.</p>
