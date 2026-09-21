@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-pub const USER_AGENT: &str = concat!("NotAnotherCreatureLauncher/", env!("CARGO_PKG_VERSION"));
+pub const USER_AGENT: &str = concat!("YetAnotherCreatureCollectorGameLauncher/", env!("CARGO_PKG_VERSION"));
 
 /// Shared HTTP agent. Only the connect and response-header phases have timeouts,
 /// so large downloads on slow connections are never cut off mid-stream.

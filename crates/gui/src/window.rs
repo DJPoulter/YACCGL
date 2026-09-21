@@ -7,12 +7,12 @@ use std::time::{Duration, Instant};
 
 use adw::prelude::*;
 use gtk::{gio, glib};
-use nacl_core::api::{self, GamePackage};
-use nacl_core::install::{self, Progress, Status};
-use nacl_core::settings::Settings;
-use nacl_core::space::{self, human};
-use nacl_core::steam::{self, ShortcutSpec, Steam, User, process};
-use nacl_core::{Error, GAME_NAME, http};
+use yaccgl_core::api::{self, GamePackage};
+use yaccgl_core::install::{self, Progress, Status};
+use yaccgl_core::settings::Settings;
+use yaccgl_core::space::{self, human};
+use yaccgl_core::steam::{self, ShortcutSpec, Steam, User, process};
+use yaccgl_core::{Error, GAME_NAME, http};
 
 use crate::APP_ID;
 
@@ -132,7 +132,7 @@ pub fn build(application: &adw::Application) {
 fn build_ui(application: &adw::Application) -> Ui {
     let menu = gio::Menu::new();
     menu.append(Some("Open Install Folder"), Some("win.open-folder"));
-    menu.append(Some("About NotAnotherCreatureLauncher"), Some("win.about"));
+    menu.append(Some("About"), Some("win.about"));
     let menu_button = gtk::MenuButton::builder()
         .icon_name("open-menu-symbolic")
         .menu_model(&menu)
@@ -269,7 +269,7 @@ fn build_ui(application: &adw::Application) -> Ui {
 
     let window = adw::ApplicationWindow::builder()
         .application(application)
-        .title("NotAnotherCreatureLauncher")
+        .title("Yet Another Creature Collector Game Launcher")
         .icon_name(APP_ID)
         .default_width(720)
         .default_height(780)
@@ -383,7 +383,7 @@ impl App {
         let a = self.clone();
         about.connect_activate(move |_, _| {
             adw::AboutDialog::builder()
-                .application_name("NotAnotherCreatureLauncher")
+                .application_name("Yet Another Creature Collector Game Launcher")
                 .application_icon(APP_ID)
                 .version(env!("CARGO_PKG_VERSION"))
                 .license_type(gtk::License::Gpl30)
@@ -488,7 +488,7 @@ impl App {
         let dir = self.state.borrow().settings.install_dir.clone();
         let exe_name = install::read_state(&dir)
             .map(|s| s.package.exe_name().to_owned())
-            .unwrap_or_else(|| nacl_core::DEFAULT_EXE.into());
+            .unwrap_or_else(|| yaccgl_core::DEFAULT_EXE.into());
         let exe = dir.join(exe_name);
         let appid = steam::appid_for(&exe, GAME_NAME);
         (exe, appid)
@@ -929,7 +929,7 @@ impl App {
 /// Where to install when the user picks `picked`: use it directly if it already
 /// holds the game, is empty, or is named after the game; otherwise use a subfolder.
 fn resolve_install_dir(picked: &Path) -> PathBuf {
-    let has_game = picked.join(nacl_core::DEFAULT_EXE).is_file() || picked.join(".nacl").is_dir();
+    let has_game = picked.join(yaccgl_core::DEFAULT_EXE).is_file() || picked.join(".yaccgl").is_dir();
     let is_empty = std::fs::read_dir(picked).map_or(true, |mut d| d.next().is_none());
     let named = picked.file_name().is_some_and(|n| n.eq_ignore_ascii_case(GAME_NAME));
     if has_game || is_empty || named { picked.to_path_buf() } else { picked.join(GAME_NAME) }

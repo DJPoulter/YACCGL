@@ -7,14 +7,14 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
-use nacl_core::install::{self, Progress, Status};
-use nacl_core::settings::Settings;
-use nacl_core::space::human;
-use nacl_core::steam::{self, ShortcutSpec, Steam, process};
-use nacl_core::{GAME_NAME, api, http};
+use yaccgl_core::install::{self, Progress, Status};
+use yaccgl_core::settings::Settings;
+use yaccgl_core::space::human;
+use yaccgl_core::steam::{self, ShortcutSpec, Steam, process};
+use yaccgl_core::{GAME_NAME, api, http};
 
 #[derive(Parser)]
-#[command(name = "nacl", version, about = "Install Aniimo and add it to Steam")]
+#[command(name = "yaccgl", version, about = "Install Aniimo and add it to Steam")]
 struct Cli {
     /// Install directory (defaults to the saved setting, then ~/Games/Aniimo).
     #[arg(long, global = true)]
@@ -143,7 +143,7 @@ fn install(settings: &mut Settings, repair: bool) -> Result<()> {
     install::install(&agent, &dir, &latest, &cancel, &mut |p| bar.update(p))?;
     bar.finish();
     settings.save()?;
-    println!("Done. Run `nacl steam add` to add it to Steam.");
+    println!("Done. Run `yaccgl steam add` to add it to Steam.");
     Ok(())
 }
 
@@ -175,7 +175,7 @@ fn pick_steam(user: Option<u32>) -> Result<(Steam, steam::User)> {
         }
     }
     match user {
-        Some(id) => bail!("Steam user {id} not found (see `nacl steam users`)"),
+        Some(id) => bail!("Steam user {id} not found (see `yaccgl steam users`)"),
         None => bail!("no Steam installation with a logged-in user found"),
     }
 }
@@ -203,7 +203,7 @@ fn steam_add(settings: &Settings, restart: bool) -> Result<()> {
     let exe = dir.join(
         install::read_state(dir)
             .map(|s| s.package.exe_name().to_owned())
-            .unwrap_or_else(|| nacl_core::DEFAULT_EXE.into()),
+            .unwrap_or_else(|| yaccgl_core::DEFAULT_EXE.into()),
     );
     if !exe.is_file() {
         bail!("{} not found. Install the game first.", exe.display());
@@ -237,7 +237,7 @@ fn steam_remove(settings: &Settings, user: Option<u32>, restart: bool) -> Result
     let dir = &settings.install_dir;
     let exe_name = install::read_state(dir)
         .map(|s| s.package.exe_name().to_owned())
-        .unwrap_or_else(|| nacl_core::DEFAULT_EXE.into());
+        .unwrap_or_else(|| yaccgl_core::DEFAULT_EXE.into());
     let appid = steam::appid_for(&dir.join(exe_name), GAME_NAME);
     let (steam, user) = pick_steam(user)?;
     with_steam_closed(&steam, restart, || Ok(steam.unregister(&user, appid)?))?;

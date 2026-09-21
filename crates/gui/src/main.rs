@@ -2,7 +2,7 @@ mod window;
 
 use adw::prelude::*;
 
-pub const APP_ID: &str = "io.github.NotAnotherCreatureLauncher.Launcher";
+pub const APP_ID: &str = "io.github.yaccgl.Launcher";
 
 fn main() -> gtk::glib::ExitCode {
     let app = adw::Application::builder().application_id(APP_ID).build();

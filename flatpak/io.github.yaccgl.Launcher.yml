@@ -1,10 +1,10 @@
-id: io.github.NotAnotherCreatureLauncher.Launcher
+id: io.github.yaccgl.Launcher
 runtime: org.gnome.Platform
 runtime-version: '50'
 sdk: org.gnome.Sdk
 sdk-extensions:
   - org.freedesktop.Sdk.Extension.rust-stable
-command: not-another-creature-launcher
+command: yet-another-creature-collector-game-launcher
 finish-args:
   - --share=network
   - --share=ipc
@@ -21,18 +21,18 @@ finish-args:
 build-options:
   append-path: /usr/lib/sdk/rust-stable/bin
 modules:
-  - name: not-another-creature-launcher
+  - name: yet-another-creature-collector-game-launcher
     buildsystem: simple
     build-options:
       env:
-        CARGO_HOME: /run/build/not-another-creature-launcher/cargo
+        CARGO_HOME: /run/build/yet-another-creature-collector-game-launcher/cargo
       # Local builds fetch crates directly. A Flathub submission needs a generated
       # cargo-sources.json (flatpak-cargo-generator) instead of network access.
       build-args:
         - --share=network
     build-commands:
-      - cargo build --release --locked -p nacl-gui
-      - install -Dm755 target/release/not-another-creature-launcher -t /app/bin/
+      - cargo build --release --locked -p yaccgl-gui
+      - install -Dm755 target/release/yet-another-creature-collector-game-launcher -t /app/bin/
       - install -Dm644 data/${FLATPAK_ID}.desktop -t /app/share/applications/
       - install -Dm644 data/${FLATPAK_ID}.metainfo.xml -t /app/share/metainfo/
       - install -Dm644 data/${FLATPAK_ID}.svg -t /app/share/icons/hicolor/scalable/apps/

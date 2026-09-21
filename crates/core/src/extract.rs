@@ -100,7 +100,7 @@ fn sanitize(name: &str) -> Option<PathBuf> {
 
 fn tmp_path(target: &Path) -> PathBuf {
     let mut s = target.as_os_str().to_owned();
-    s.push(".nacl-tmp");
+    s.push(".yaccgl-tmp");
     PathBuf::from(s)
 }
 

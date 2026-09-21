@@ -1,6 +1,6 @@
 //! Installing, updating and inspecting a game installation.
 //!
-//! State lives inside the install directory (`.nacl/state.json`), so pointing the
+//! State lives inside the install directory (`.yaccgl/state.json`), so pointing the
 //! launcher at an existing folder picks up what is already there.
 
 use std::fs;
@@ -15,7 +15,7 @@ use crate::download::{self, Transfer};
 use crate::error::IoContext;
 use crate::{Error, Result, extract, space};
 
-const STATE_DIR: &str = ".nacl";
+const STATE_DIR: &str = ".yaccgl";
 const STATE_FILE: &str = "state.json";
 const CACHE_DIR: &str = "cache";
 

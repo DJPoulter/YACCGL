@@ -1034,42 +1034,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "nacl-cli"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "clap",
- "nacl-core",
-]
-
-[[package]]
-name = "nacl-core"
-version = "0.1.0"
-dependencies = [
- "crc32fast",
- "dirs",
- "hex",
- "libc",
- "md-5",
- "serde",
- "serde_json",
- "sevenz-rust2",
- "tempfile",
- "thiserror",
- "ureq",
-]
-
-[[package]]
-name = "nacl-gui"
-version = "0.1.0"
-dependencies = [
- "async-channel",
- "gtk4",
- "libadwaita",
- "nacl-core",
-]
-
-[[package]]
 name = "num-conv"
 version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1819,6 +1783,42 @@ name = "writeable"
 version = "0.6.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3ad82d2a33cdc9674dc7465672f271e096168fcdbe0f799d9e6db8c5892679dc"
+
+[[package]]
+name = "yaccgl-cli"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "yaccgl-core",
+]
+
+[[package]]
+name = "yaccgl-core"
+version = "0.1.0"
+dependencies = [
+ "crc32fast",
+ "dirs",
+ "hex",
+ "libc",
+ "md-5",
+ "serde",
+ "serde_json",
+ "sevenz-rust2",
+ "tempfile",
+ "thiserror",
+ "ureq",
+]
+
+[[package]]
+name = "yaccgl-gui"
+version = "0.1.0"
+dependencies = [
+ "async-channel",
+ "gtk4",
+ "libadwaita",
+ "yaccgl-core",
+]
 
 [[package]]
 name = "yoke"

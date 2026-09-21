@@ -1,4 +1,4 @@
-//! Core logic for NotAnotherCreatureLauncher: talking to the official Aniimo
+//! Core logic for Yet Another Creature Collector Game Launcher: talking to the official Aniimo
 //! version API, downloading and extracting the game, and registering it with Steam.
 
 pub mod api;

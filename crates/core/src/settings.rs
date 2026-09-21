@@ -39,7 +39,7 @@ pub fn default_install_dir() -> PathBuf {
 fn path() -> PathBuf {
     dirs::config_dir()
         .unwrap_or_else(|| PathBuf::from("."))
-        .join("not-another-creature-launcher")
+        .join("yet-another-creature-collector-game-launcher")
         .join("settings.json")
 }
 

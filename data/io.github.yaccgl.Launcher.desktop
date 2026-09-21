@@ -1,10 +1,10 @@
 [Desktop Entry]
 Type=Application
-Name=NotAnotherCreatureLauncher
+Name=Yet Another Creature Collector Game Launcher
 GenericName=Aniimo Installer
 Comment=Install Aniimo and add it to Steam
-Exec=not-another-creature-launcher
-Icon=io.github.NotAnotherCreatureLauncher.Launcher
+Exec=yet-another-creature-collector-game-launcher
+Icon=io.github.yaccgl.Launcher
 Terminal=false
 Categories=Game;
 Keywords=aniimo;steam;proton;launcher;installer;

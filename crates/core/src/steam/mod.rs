@@ -366,15 +366,15 @@ fn new_entry() -> binary_vdf::Obj {
     e
 }
 
-/// Keep a `.nacl-bak` copy of the previous contents, then replace the file atomically.
+/// Keep a `.yaccgl-bak` copy of the previous contents, then replace the file atomically.
 fn write_backed_up(path: &Path, data: &[u8]) -> Result<()> {
     if path.exists() {
         let mut bak = path.as_os_str().to_owned();
-        bak.push(".nacl-bak");
+        bak.push(".yaccgl-bak");
         fs::copy(path, &bak).io_ctx(|| format!("backing up {}", path.display()))?;
     }
     let mut tmp = path.as_os_str().to_owned();
-    tmp.push(".nacl-tmp");
+    tmp.push(".yaccgl-tmp");
     fs::write(&tmp, data).io_ctx(|| format!("writing {}", path.display()))?;
     fs::rename(&tmp, path).io_ctx(|| format!("replacing {}", path.display()))
 }
@@ -478,7 +478,7 @@ mod tests {
         let cfg = fs::read_to_string(steam.config_vdf()).unwrap();
         assert!(!cfg.contains("\"Valve\""));
         assert!(cfg.contains("AutoUpdateWindowEnabled"));
-        assert!(steam.config_vdf().with_extension("vdf.nacl-bak").exists());
+        assert!(steam.config_vdf().with_extension("vdf.yaccgl-bak").exists());
     }
 
     #[test]

@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <component type="desktop-application">
-  <id>io.github.NotAnotherCreatureLauncher.Launcher</id>
+  <id>io.github.yaccgl.Launcher</id>
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>GPL-3.0-or-later</project_license>
-  <name>NotAnotherCreatureLauncher</name>
+  <name>Yet Another Creature Collector Game Launcher</name>
   <summary>Install Aniimo and add it to Steam</summary>
-  <developer id="io.github.notanothercreaturelauncher">
-    <name>NotAnotherCreatureLauncher contributors</name>
+  <developer id="io.github.yaccgl">
+    <name>Yet Another Creature Collector Game Launcher contributors</name>
   </developer>
   <description>
     <p>
@@ -23,7 +23,7 @@
       This project is not affiliated with Pawprint Interactive, FunPlus or Valve.
     </p>
   </description>
-  <launchable type="desktop-id">io.github.NotAnotherCreatureLauncher.Launcher.desktop</launchable>
+  <launchable type="desktop-id">io.github.yaccgl.Launcher.desktop</launchable>
   <content_rating type="oars-1.1"/>
   <supports>
     <control>pointing</control>
