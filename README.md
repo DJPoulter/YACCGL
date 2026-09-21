@@ -65,6 +65,7 @@ yaccgl install --repair               # re-download and re-extract
 yaccgl steam users                    # list Steam accounts
 yaccgl steam add --restart-steam      # add/update the shortcut, force Proton 10, add artwork
 yaccgl steam remove --restart-steam
+yaccgl steam doctor                   # troubleshooting: Steam detection and every shortcut
 ```
 
 ## How it works

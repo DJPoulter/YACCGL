@@ -36,6 +36,11 @@
     <display_length compare="ge">360</display_length>
   </requires>
   <releases>
+    <release version="0.1.1" date="2026-09-21">
+      <description>
+        <p>Fixes the Steam shortcut sometimes not appearing: Steam is now reliably detected and closed before its files are changed, and the shortcut is checked again after Steam restarts.</p>
+      </description>
+    </release>
     <release version="0.1.0" date="2026-09-21">
       <description>
         <p>First release.</p>

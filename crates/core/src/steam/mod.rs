@@ -52,6 +52,17 @@ pub struct ShortcutSpec {
     pub artwork: bool,
 }
 
+/// Result of [`Steam::with_closed`].
+#[derive(Debug, Clone)]
+pub struct Applied<T> {
+    pub value: T,
+    /// Steam was running, so it was closed for the change and started again.
+    pub restarted: bool,
+    /// After the restart, whether the change was still in place once Steam had loaded.
+    /// `None` if Steam wasn't restarted or didn't come back in time.
+    pub survived_restart: Option<bool>,
+}
+
 #[derive(Debug, Clone)]
 pub struct Registered {
     pub appid: u32,
@@ -137,6 +148,43 @@ impl Steam {
         users.into_iter().map(|(u, _)| u).collect()
     }
 
+    /// Apply `change` to Steam's files while Steam is closed.
+    ///
+    /// Steam keeps shortcuts in memory and writes them back when it exits, so an edit
+    /// made while it runs is silently lost. If Steam is running it is closed first
+    /// (only when `restart` is true, otherwise this fails), and started again after.
+    /// `is_applied` is checked right after the change and again once Steam is back up,
+    /// to catch a Steam instance that overwrote the files anyway.
+    pub fn with_closed<T>(
+        &self,
+        restart: bool,
+        change: impl FnOnce() -> Result<T>,
+        is_applied: impl Fn() -> bool,
+    ) -> Result<Applied<T>> {
+        let running = process::is_running()?;
+        if running {
+            if !restart {
+                return Err(Error::Steam("Steam is running. Exit Steam first, then try again.".into()));
+            }
+            process::shutdown(self.flavor, std::time::Duration::from_secs(60))?;
+        }
+        let value = change()?;
+        if !is_applied() {
+            return Err(Error::Steam("the change was written but could not be read back from Steam's files".into()));
+        }
+        let mut survived_restart = None;
+        if running {
+            process::start(self.flavor)?;
+            if process::wait_until_running(std::time::Duration::from_secs(90))? {
+                // Give Steam time to load its library (and to clobber the file if a
+                // stale instance was still around).
+                std::thread::sleep(std::time::Duration::from_secs(10));
+                survived_restart = Some(is_applied());
+            }
+        }
+        Ok(Applied { value, restarted: running, survived_restart })
+    }
+
     /// Custom compat tools (e.g. GE-Proton) installed in `compatibilitytools.d`,
     /// as `(internal name, display name)`.
     pub fn custom_compat_tools(&self) -> Vec<(String, String)> {
@@ -165,6 +213,33 @@ impl Steam {
         let Ok(root) = binary_vdf::parse(&data) else { return false };
         root.get_obj("shortcuts")
             .is_some_and(|s| s.0.iter().any(|(_, v)| entry_appid(v) == Some(appid)))
+    }
+
+    /// All shortcuts in the user's `shortcuts.vdf` as `(appid, name, exe)`.
+    pub fn shortcuts(&self, user: &User) -> Result<Vec<(u32, String, String)>> {
+        let path = self.shortcuts_vdf(user);
+        let data = match fs::read(&path) {
+            Ok(d) => d,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(e) => return Err(e).io_ctx(|| format!("reading {}", path.display())),
+        };
+        let root = parse_shortcuts(&path, &data)?;
+        Ok(root
+            .get_obj("shortcuts")
+            .map(|list| {
+                list.0
+                    .iter()
+                    .filter_map(|(_, v)| match v {
+                        binary_vdf::Value::Obj(o) => Some((
+                            o.get_int("appid").unwrap_or(0) as u32,
+                            o.get_str("AppName").unwrap_or_default(),
+                            o.get_str("Exe").unwrap_or_default(),
+                        )),
+                        _ => None,
+                    })
+                    .collect()
+            })
+            .unwrap_or_default())
     }
 
     /// Current compat tool forced for `appid`, if any.

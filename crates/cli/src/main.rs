@@ -64,6 +64,8 @@ enum SteamCmd {
         #[arg(long)]
         restart_steam: bool,
     },
+    /// Show Steam detection details and every shortcut, for troubleshooting.
+    Doctor,
 }
 
 fn main() -> Result<()> {
@@ -88,6 +90,7 @@ fn main() -> Result<()> {
         Cmd::Steam(SteamCmd::Remove { user, restart_steam }) => {
             steam_remove(&settings, user.or(settings.steam_user), restart_steam)
         }
+        Cmd::Steam(SteamCmd::Doctor) => steam_doctor(&settings),
     }
 }
 
@@ -180,31 +183,32 @@ fn pick_steam(user: Option<u32>) -> Result<(Steam, steam::User)> {
     }
 }
 
-/// Run `f` with Steam closed, restarting it afterwards if we closed it.
-fn with_steam_closed<T>(steam: &Steam, restart: bool, f: impl FnOnce() -> Result<T>) -> Result<T> {
-    let was_running = process::is_running();
-    if was_running {
-        if !restart {
-            bail!("Steam is running. Close it first, or pass --restart-steam.");
-        }
-        println!("Closing Steam...");
-        process::shutdown(steam.flavor, Duration::from_secs(60))?;
+fn exe_path(settings: &Settings) -> PathBuf {
+    let dir = &settings.install_dir;
+    dir.join(
+        install::read_state(dir)
+            .map(|s| s.package.exe_name().to_owned())
+            .unwrap_or_else(|| yaccgl_core::DEFAULT_EXE.into()),
+    )
+}
+
+/// Report what happened around a Steam restart, failing if Steam discarded the change.
+fn check_restart<T>(applied: &steam::Applied<T>) -> Result<()> {
+    if applied.restarted {
+        println!("Steam was closed for the change and started again.");
     }
-    let result = f();
-    if was_running {
-        println!("Starting Steam...");
-        process::start(steam.flavor)?;
+    if applied.survived_restart == Some(false) {
+        bail!(
+            "Steam overwrote the change when it restarted, which means another Steam process was still running. \
+             Exit Steam completely (Steam menu > Exit), then run this command again."
+        );
     }
-    result
+    Ok(())
 }
 
 fn steam_add(settings: &Settings, restart: bool) -> Result<()> {
     let dir = &settings.install_dir;
-    let exe = dir.join(
-        install::read_state(dir)
-            .map(|s| s.package.exe_name().to_owned())
-            .unwrap_or_else(|| yaccgl_core::DEFAULT_EXE.into()),
-    );
+    let exe = exe_path(settings);
     if !exe.is_file() {
         bail!("{} not found. Install the game first.", exe.display());
     }
@@ -217,7 +221,17 @@ fn steam_add(settings: &Settings, restart: bool) -> Result<()> {
         compat_tool: Some(settings.compat_tool.clone()),
         artwork: settings.artwork,
     };
-    let reg = with_steam_closed(&steam, restart, || Ok(steam.register(&http::agent(), &user, &spec)?))?;
+    let appid = steam::appid_for(&spec.exe, &spec.name);
+    if restart && process::is_running()? {
+        println!("Closing Steam...");
+    }
+    let applied = steam.with_closed(
+        restart,
+        || steam.register(&http::agent(), &user, &spec),
+        || steam.shortcut_exists(&user, appid),
+    )?;
+    check_restart(&applied)?;
+    let reg = applied.value;
     println!(
         "{} shortcut {} for user {} with {}.",
         if reg.created { "Added" } else { "Updated" },
@@ -234,14 +248,64 @@ fn steam_add(settings: &Settings, restart: bool) -> Result<()> {
 }
 
 fn steam_remove(settings: &Settings, user: Option<u32>, restart: bool) -> Result<()> {
-    let dir = &settings.install_dir;
-    let exe_name = install::read_state(dir)
-        .map(|s| s.package.exe_name().to_owned())
-        .unwrap_or_else(|| yaccgl_core::DEFAULT_EXE.into());
-    let appid = steam::appid_for(&dir.join(exe_name), GAME_NAME);
+    let appid = steam::appid_for(&exe_path(settings), GAME_NAME);
     let (steam, user) = pick_steam(user)?;
-    with_steam_closed(&steam, restart, || Ok(steam.unregister(&user, appid)?))?;
+    let applied = steam.with_closed(
+        restart,
+        || steam.unregister(&user, appid),
+        || !steam.shortcut_exists(&user, appid),
+    )?;
+    check_restart(&applied)?;
     println!("Removed shortcut {appid}.");
+    Ok(())
+}
+
+/// Print everything needed to work out why a shortcut isn't showing up.
+fn steam_doctor(settings: &Settings) -> Result<()> {
+    let exe = exe_path(settings);
+    let appid = steam::appid_for(&exe, GAME_NAME);
+    println!("Running in Flatpak:  {}", process::in_flatpak());
+    println!("Game Mode:           {}", process::in_game_mode());
+    match process::is_running() {
+        Ok(r) => println!("Steam running:       {r}"),
+        Err(e) => println!("Steam running:       unknown ({e})"),
+    }
+    println!("Game exe:            {} ({})", exe.display(), if exe.is_file() { "found" } else { "MISSING" });
+    println!("Expected app id:     {appid}");
+
+    let installs = Steam::detect();
+    if installs.is_empty() {
+        println!("\nNo Steam installation found.");
+    }
+    for steam in installs {
+        println!("\nSteam: {} ({:?})", steam.root.display(), steam.flavor);
+        println!("  Compat tool for {appid}: {}", steam.compat_tool(appid).unwrap_or_else(|| "none".into()));
+        for user in steam.users() {
+            let path = steam.shortcuts_vdf(&user);
+            let modified = std::fs::metadata(&path)
+                .and_then(|m| m.modified())
+                .ok()
+                .and_then(|t| t.elapsed().ok())
+                .map_or("missing".into(), |d| format!("modified {}s ago", d.as_secs()));
+            println!(
+                "  User {} {}{}: {} ({modified})",
+                user.account_id,
+                user.persona.as_deref().unwrap_or("?"),
+                if user.most_recent { " [most recent]" } else { "" },
+                path.display(),
+            );
+            match steam.shortcuts(&user) {
+                Ok(list) if list.is_empty() => println!("    (no shortcuts)"),
+                Ok(list) => {
+                    for (id, name, exe) in list {
+                        let mark = if id == appid { "  <-- YACCGL" } else { "" };
+                        println!("    {id:>10}  {name}  {exe}{mark}");
+                    }
+                }
+                Err(e) => println!("    could not read: {e}"),
+            }
+        }
+    }
     Ok(())
 }
 

@@ -790,32 +790,63 @@ impl App {
     }
 
     /// Steam rewrites its config on exit, so it must be closed while we edit it.
-    /// Returns Ok(false) if the user declined to close it.
-    async fn ensure_steam_closable(&self) -> Result<bool, String> {
+    /// Returns whether it's OK to go ahead (closing Steam if it's running).
+    async fn confirm_steam_change(&self) -> bool {
         if process::in_game_mode() {
-            return Err("Steam can't be modified from Game Mode. Switch to Desktop Mode and try again.".into());
+            self.error(
+                "Can't change Steam right now",
+                "Steam can't be modified from Game Mode. Switch to Desktop Mode and try again.",
+            );
+            return false;
         }
-        let running = gio::spawn_blocking(process::is_running).await.unwrap_or(false);
-        if !running {
-            return Ok(false);
-        }
-        if self
-            .confirm(
-                "Steam needs to restart",
-                "Steam overwrites its list of shortcuts when it exits, so it has to be closed while this change is made. It will be started again afterwards.",
-                "Restart Steam",
-                false,
-            )
-            .await
-        {
-            Ok(true)
-        } else {
-            Err(String::new())
+        match gio::spawn_blocking(process::is_running).await {
+            Ok(Ok(false)) => true,
+            Ok(Ok(true)) => {
+                self.confirm(
+                    "Steam needs to restart",
+                    "Steam overwrites its list of shortcuts when it exits, so it has to be closed while this change is made. It will be started again afterwards.",
+                    "Restart Steam",
+                    false,
+                )
+                .await
+            }
+            Ok(Err(e)) => {
+                self.error("Can't change Steam right now", &e.to_string());
+                false
+            }
+            Err(_) => false,
         }
     }
 
+    /// Run a Steam config change on a worker thread with Steam closed, showing progress.
+    async fn run_steam_change<T: Send + 'static>(
+        &self,
+        steam: Steam,
+        busy_text: &str,
+        change: impl FnOnce(&Steam) -> yaccgl_core::Result<T> + Send + 'static,
+        is_applied: impl Fn(&Steam) -> bool + Send + 'static,
+    ) -> Result<steam::Applied<T>, String> {
+        self.state.borrow_mut().task = Some(Task::Steam);
+        self.ui.progress_label.set_label(busy_text);
+        self.ui.progress_label.set_visible(true);
+        self.refresh();
+        let result = gio::spawn_blocking(move || {
+            steam.with_closed(true, || change(&steam), || is_applied(&steam)).map_err(|e| e.to_string())
+        })
+        .await;
+        self.state.borrow_mut().task = None;
+        self.ui.progress_label.set_visible(false);
+        self.refresh();
+        let applied = result.map_err(|_| "An unexpected error occurred.".to_string())??;
+        if applied.survived_restart == Some(false) {
+            return Err("Steam overwrote the change when it restarted, which means another Steam process was still                         running. Exit Steam completely (Steam menu > Exit), then try again."
+                .into());
+        }
+        Ok(applied)
+    }
+
     async fn add_to_steam(&self) {
-        let (exe, _) = self.target();
+        let (exe, appid) = self.target();
         let (steam, user, spec) = {
             let st = self.state.borrow();
             let Some(steam) = st.steam.clone() else { return };
@@ -837,31 +868,23 @@ impl App {
             self.error("Game not installed", "Install Aniimo before adding it to Steam.");
             return;
         }
-        let restart = match self.ensure_steam_closable().await {
-            Ok(r) => r,
-            Err(e) if e.is_empty() => return,
-            Err(e) => return self.error("Can't change Steam right now", &e),
-        };
+        if !self.confirm_steam_change().await {
+            return;
+        }
 
-        self.state.borrow_mut().task = Some(Task::Steam);
-        self.refresh();
         let tool = spec.compat_tool.clone().unwrap_or_default();
-        let result = gio::spawn_blocking(move || -> Result<steam::Registered, String> {
-            if restart {
-                process::shutdown(steam.flavor, Duration::from_secs(60)).map_err(|e| e.to_string())?;
-            }
-            let reg = steam.register(&http::agent(), &user, &spec).map_err(|e| e.to_string());
-            if restart {
-                let _ = process::start(steam.flavor);
-            }
-            reg
-        })
-        .await;
-        self.state.borrow_mut().task = None;
-        self.refresh();
-
+        let check_user = user.clone();
+        let result = self
+            .run_steam_change(
+                steam,
+                "Adding Aniimo to Steam…",
+                move |s| s.register(&http::agent(), &user, &spec),
+                move |s| s.shortcut_exists(&check_user, appid),
+            )
+            .await;
         match result {
-            Ok(Ok(reg)) => {
+            Ok(applied) => {
+                let reg = applied.value;
                 let name = self.state.borrow().tools.iter().find(|t| t.0 == tool).map_or(tool.clone(), |t| t.1.clone());
                 let verb = if reg.created { "Added to Steam" } else { "Steam shortcut updated" };
                 self.toast(&format!("{verb} · {name}"));
@@ -869,8 +892,7 @@ impl App {
                     self.toast(&format!("Artwork couldn't be downloaded: {e}"));
                 }
             }
-            Ok(Err(e)) => self.error("Couldn't add Aniimo to Steam", &e),
-            Err(_) => self.error("Couldn't add Aniimo to Steam", "An unexpected error occurred."),
+            Err(e) => self.error("Couldn't add Aniimo to Steam", &e),
         }
     }
 
@@ -889,30 +911,21 @@ impl App {
         {
             return;
         }
-        let restart = match self.ensure_steam_closable().await {
-            Ok(r) => r,
-            Err(e) if e.is_empty() => return,
-            Err(e) => return self.error("Can't change Steam right now", &e),
-        };
-        self.state.borrow_mut().task = Some(Task::Steam);
-        self.refresh();
-        let result = gio::spawn_blocking(move || -> Result<(), String> {
-            if restart {
-                process::shutdown(steam.flavor, Duration::from_secs(60)).map_err(|e| e.to_string())?;
-            }
-            let r = steam.unregister(&user, appid).map_err(|e| e.to_string());
-            if restart {
-                let _ = process::start(steam.flavor);
-            }
-            r
-        })
-        .await;
-        self.state.borrow_mut().task = None;
-        self.refresh();
-        match result {
-            Ok(Ok(())) => self.toast("Removed from Steam"),
-            Ok(Err(e)) => self.error("Couldn't remove the shortcut", &e),
-            Err(_) => self.error("Couldn't remove the shortcut", "An unexpected error occurred."),
+        if !self.confirm_steam_change().await {
+            return;
+        }
+        let check_user = user.clone();
+        match self
+            .run_steam_change(
+                steam,
+                "Removing Aniimo from Steam…",
+                move |s| s.unregister(&user, appid),
+                move |s| !s.shortcut_exists(&check_user, appid),
+            )
+            .await
+        {
+            Ok(_) => self.toast("Removed from Steam"),
+            Err(e) => self.error("Couldn't remove the shortcut", &e),
         }
     }
 

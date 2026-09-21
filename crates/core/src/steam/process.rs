@@ -31,26 +31,48 @@ pub fn host_command(program: &str) -> Command {
     }
 }
 
-pub fn is_running() -> bool {
-    let status = host_command("pgrep")
-        .args(["-x", "steam"])
+/// Runs on the host: exit 0 if any Steam client process is alive, 1 if none is.
+/// The web helper counts too, since Steam isn't done writing its files until it exits.
+const RUNNING_CHECK: &str = r#"
+pgrep -x steam >/dev/null 2>&1 && exit 0
+pgrep -x steamwebhelper >/dev/null 2>&1 && exit 0
+p=$(cat "$HOME/.steam/steam.pid" 2>/dev/null)
+[ -n "$p" ] && kill -0 "$p" 2>/dev/null && [ "$(cat /proc/$p/comm 2>/dev/null)" = steam ] && exit 0
+exit 1
+"#;
+
+/// Whether the Steam client is running on the host.
+///
+/// This must be checked on the host: inside a Flatpak sandbox `/proc` only shows
+/// the sandbox's own processes, so a local check would always say "not running".
+pub fn is_running() -> Result<bool> {
+    let status = host_command("sh")
+        .args(["-c", RUNNING_CHECK])
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
-        .status();
-    match status.map(|s| s.code()) {
-        Ok(Some(0)) => true,
-        Ok(Some(1)) => false,
-        // pgrep unavailable or the host couldn't be reached: fall back to Steam's pid file.
-        _ => pid_file_alive(),
+        .status()
+        .map_err(|e| Error::Steam(format!("couldn't check whether Steam is running: {e}")))?;
+    match status.code() {
+        Some(0) => Ok(true),
+        Some(1) => Ok(false),
+        other => Err(Error::Steam(format!(
+            "couldn't check whether Steam is running (exit status {other:?}). \
+             Please exit Steam from its menu and try again."
+        ))),
     }
 }
 
-fn pid_file_alive() -> bool {
-    let Some(home) = dirs::home_dir() else { return false };
-    let Ok(pid) = std::fs::read_to_string(home.join(".steam/steam.pid")) else { return false };
-    let pid = pid.trim();
-    !pid.is_empty() && Path::new("/proc").join(pid).join("comm").exists()
+/// Wait until Steam is running again, e.g. after [`start`].
+pub fn wait_until_running(timeout: Duration) -> Result<bool> {
+    let deadline = Instant::now() + timeout;
+    while Instant::now() < deadline {
+        if is_running()? {
+            return Ok(true);
+        }
+        thread::sleep(Duration::from_secs(1));
+    }
+    Ok(false)
 }
 
 fn steam_command(flavor: Flavor) -> Command {
@@ -71,22 +93,27 @@ pub fn shutdown(flavor: Flavor, timeout: Duration) -> Result<()> {
             "Steam can't be closed from Game Mode. Switch to Desktop Mode to add the game to Steam.".into(),
         ));
     }
-    if !is_running() {
+    if !is_running()? {
         return Ok(());
     }
-    steam_command(flavor)
+    let mut request = steam_command(flavor)
         .arg("-shutdown")
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn()
         .map_err(|e| Error::Steam(format!("could not ask Steam to close: {e}")))?;
+    // Reap it in the background: an unreaped `steam -shutdown` lingers as a zombie
+    // named "steam", which would make Steam look like it never exits.
+    thread::spawn(move || {
+        let _ = request.wait();
+    });
     let deadline = Instant::now() + timeout;
     while Instant::now() < deadline {
         thread::sleep(Duration::from_millis(500));
-        if !is_running() {
+        if !is_running()? {
             // Steam flushes its config files as the last step of exiting.
-            thread::sleep(Duration::from_secs(1));
+            thread::sleep(Duration::from_secs(2));
             return Ok(());
         }
     }
