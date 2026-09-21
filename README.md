@@ -14,15 +14,28 @@ official launcher entirely: it talks to the same version API and CDN the launche
 
 ## Installing on a Steam Deck
 
-1. Switch to **Desktop Mode**.
-2. Download `yet-another-creature-collector-game-launcher.flatpak`, then in a terminal (Konsole):
-   ```bash
-   flatpak install --user ./yet-another-creature-collector-game-launcher.flatpak
-   ```
-3. Open **Yet Another Creature Collector Game Launcher** from the application menu.
-4. Pick an install location (the default is `~/Games/Aniimo`; SD cards work too) and press **Install**.
-5. When it finishes, choose **Add to Steam**. Steam restarts once so the shortcut can be written.
-6. Go back to Game Mode. Aniimo is in your library, set to run with Proton 10.
+1. Switch to **Desktop Mode** (Steam button → Power → Switch to Desktop).
+2. Download `yet-another-creature-collector-game-launcher.flatpak` from the
+   [latest release](https://github.com/DJPoulter/YACCGL/releases/latest).
+3. Install it, either way works:
+   - **Discover:** open your Downloads folder in Dolphin and double-click the file, then press
+     **Install**.
+   - **Terminal (Konsole):**
+     ```bash
+     flatpak install --user ~/Downloads/yet-another-creature-collector-game-launcher.flatpak
+     ```
+     Answer `y` when asked to install the GNOME runtime from Flathub (a few hundred MB, only needed
+     the first time).
+4. Open **Yet Another Creature Collector Game Launcher** from the application menu (under
+   Games).
+5. Pick an install location (the default is `~/Games/Aniimo`; SD cards work too) and press
+   **Install**.
+6. When it finishes, choose **Add to Steam**. If Steam is running it is closed and restarted,
+   because Steam overwrites its shortcut list when it exits.
+7. Go back to Game Mode. Aniimo is in your library, set to run with Proton 10.
+
+To uninstall the launcher: `flatpak uninstall io.github.DJPoulter.YACCGL`. The game folder and the
+Steam shortcut are left alone; remove the shortcut first with the trash button if you want it gone.
 
 The download is about 340 MB. On first launch the game downloads the rest of its data
 (about 40 GB) itself, so make sure there's room.
@@ -41,9 +54,11 @@ shortcut stays as it is.
 
 ## Command line
 
-The same features are available without the GUI:
+The same features are available without the GUI. The Flatpak includes the `yaccgl` command:
 
 ```bash
+alias yaccgl='flatpak run --command=yaccgl io.github.DJPoulter.YACCGL'
+
 yaccgl status                         # installed/latest version, Steam shortcut state
 yaccgl --dir ~/Games/Aniimo install   # install or update
 yaccgl install --repair               # re-download and re-extract

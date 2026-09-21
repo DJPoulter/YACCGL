@@ -31,8 +31,8 @@ modules:
       build-args:
         - --share=network
     build-commands:
-      - cargo build --release --locked -p yaccgl-gui
-      - install -Dm755 target/release/yet-another-creature-collector-game-launcher -t /app/bin/
+      - cargo build --release --locked -p yaccgl-gui -p yaccgl-cli
+      - install -Dm755 target/release/yet-another-creature-collector-game-launcher target/release/yaccgl -t /app/bin/
       - install -Dm644 data/${FLATPAK_ID}.desktop -t /app/share/applications/
       - install -Dm644 data/${FLATPAK_ID}.metainfo.xml -t /app/share/metainfo/
       - install -Dm644 data/${FLATPAK_ID}.svg -t /app/share/icons/hicolor/scalable/apps/
