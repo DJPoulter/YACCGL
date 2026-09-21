@@ -41,7 +41,6 @@ enum Action {
     Install,
     Update,
     AddToSteam,
-    Play,
 }
 
 /// Throughput over the current stage, for speed and ETA display.
@@ -614,13 +613,13 @@ impl App {
                 } else {
                     "Add it to Steam to play".to_string()
                 },
-                if shortcut { Action::Play } else { Action::AddToSteam },
+                if shortcut { Action::None } else { Action::AddToSteam },
             ),
             (None, Latest::Checking, _) => ("Checking for updates…".to_string(), String::new(), Action::None),
             (None, Latest::Failed(e), Some(s)) => (
                 "Installed".to_string(),
                 format!("Version {} · couldn't check for updates: {e}", s.package.version_number),
-                if shortcut { Action::Play } else { Action::AddToSteam },
+                if shortcut { Action::None } else { Action::AddToSteam },
             ),
             (None, Latest::Failed(e), None) => {
                 ("Can't reach the update server".to_string(), e.clone(), Action::Retry)
@@ -643,7 +642,6 @@ impl App {
             Action::Install => ("Install", true),
             Action::Update => ("Update", true),
             Action::AddToSteam => ("Add to Steam", true),
-            Action::Play => ("Play", true),
         };
         ui.primary.set_label(label);
         if suggested {
@@ -682,7 +680,8 @@ impl App {
         let busy = st.task.is_some();
         let has_steam = st.steam.is_some() && user.is_some();
         ui.primary.set_sensitive(!busy && action != Action::None);
-        ui.primary.set_visible(st.task != Some(Task::Install));
+        // Nothing to do (up to date and in Steam, or still checking): no button.
+        ui.primary.set_visible(st.task != Some(Task::Install) && action != Action::None);
         ui.cancel.set_visible(st.task == Some(Task::Install));
         ui.refresh.set_sensitive(!busy);
         ui.dir_button.set_sensitive(!busy);
@@ -711,7 +710,6 @@ impl App {
                 let a = self.clone();
                 glib::spawn_future_local(async move { a.add_to_steam().await });
             }
-            Action::Play => self.play(),
         }
     }
 
@@ -988,15 +986,6 @@ impl App {
         {
             Ok(_) => self.toast("Removed from Steam"),
             Err(e) => self.error("Couldn't remove the shortcut", &e),
-        }
-    }
-
-    fn play(&self) {
-        let (_, appid) = self.target();
-        let Some(steam) = self.state.borrow().steam.clone() else { return };
-        match process::launch_shortcut(steam.flavor, appid) {
-            Ok(()) => self.toast("Starting Aniimo through Steam…"),
-            Err(e) => self.error("Couldn't start Aniimo", &e.to_string()),
         }
     }
 }

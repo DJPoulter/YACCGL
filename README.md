@@ -118,4 +118,4 @@ docker run --rm --privileged -v "$PWD:/src" yaccgl-flatpak sh -c \
 
 ## License
 
-GPL-3.0-or-later.
+GPL-3.0-or-later. See [LICENSE](LICENSE).

@@ -36,10 +36,12 @@ pub struct PackageExt {
 
 impl GamePackage {
     /// Download URLs in order of preference, with the literal `|` the CDN uses escaped.
+    /// Only HTTPS URLs are accepted: the MD5 check guards against corruption, not
+    /// tampering, so the transport has to be trusted.
     pub fn download_urls(&self) -> Vec<String> {
         [&self.url, &self.back_url]
             .into_iter()
-            .filter(|u| !u.is_empty())
+            .filter(|u| u.get(..8).is_some_and(|s| s.eq_ignore_ascii_case("https://")))
             .map(|u| u.replace('|', "%7C"))
             .collect()
     }
@@ -115,6 +117,17 @@ mod tests {
         assert_eq!(urls.len(), 2);
         assert!(urls[0].contains("worldx_global%7Cprimitive"));
         assert!(urls[1].contains("cdn-backup"));
+    }
+
+    #[test]
+    fn only_https_urls_are_used() {
+        let env: Envelope<VersionList> = serde_json::from_str(SAMPLE).unwrap();
+        let mut game = parse_envelope(env).unwrap().primitive_game;
+        game.url = "http://example.com/pkg.7z".into();
+        game.back_url = "HTTPS://cdn.example.com/a|b.7z".into();
+        assert_eq!(game.download_urls(), vec!["HTTPS://cdn.example.com/a%7Cb.7z".to_string()]);
+        game.back_url = "ftp://example.com/pkg.7z".into();
+        assert!(game.download_urls().is_empty());
     }
 
     #[test]
