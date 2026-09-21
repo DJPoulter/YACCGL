@@ -36,6 +36,11 @@
     <display_length compare="ge">360</display_length>
   </requires>
   <releases>
+    <release version="0.1.6" date="2026-09-22">
+      <description>
+        <p>Single-window mode is off by default again, including for installs where 0.1.5 turned it on.</p>
+      </description>
+    </release>
     <release version="0.1.5" date="2026-09-22">
       <description>
         <p>Fixes not being able to type in Aniimo's login window in Game Mode. A new Log In button opens the game in Desktop Mode so you can log in once, and single-window mode (on by default) keeps the login window inside the game so the on-screen keyboard works.</p>

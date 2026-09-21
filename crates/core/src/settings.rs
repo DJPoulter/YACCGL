@@ -18,11 +18,17 @@ pub struct Settings {
     pub artwork: bool,
     /// Steam account the shortcut goes to; `None` = most recently logged in.
     pub steam_user: Option<u32>,
-    /// Keep all the game's windows in one, so typing works in Game Mode's login window.
+    /// Keep all the game's windows in one (Wine virtual desktop). Off by default.
     pub single_window: bool,
     /// Size of that window, as "WIDTHxHEIGHT".
     pub window_size: String,
+    /// Settings format; older files are migrated in [`Settings::load`]. Missing = 0.
+    #[serde(default)]
+    pub version: u32,
 }
+
+/// 1: single-window mode became opt-in (0.1.5 turned it on for everyone).
+const SETTINGS_VERSION: u32 = 1;
 
 impl Default for Settings {
     fn default() -> Self {
@@ -32,8 +38,9 @@ impl Default for Settings {
             launch_options: String::new(),
             artwork: true,
             steam_user: None,
-            single_window: true,
+            single_window: false,
             window_size: format_size(crate::steam::DEFAULT_WINDOW_SIZE),
+            version: SETTINGS_VERSION,
         }
     }
 }
@@ -68,10 +75,16 @@ impl Settings {
 
     /// Load settings, falling back to defaults if the file is missing or unreadable.
     pub fn load() -> Settings {
-        fs::read(path())
-            .ok()
-            .and_then(|d| serde_json::from_slice(&d).ok())
-            .unwrap_or_default()
+        let loaded: Option<Settings> = fs::read(path()).ok().and_then(|d| serde_json::from_slice(&d).ok());
+        loaded.map(Settings::migrate).unwrap_or_default()
+    }
+
+    fn migrate(mut self) -> Settings {
+        if self.version < 1 {
+            self.single_window = false;
+        }
+        self.version = SETTINGS_VERSION;
+        self
     }
 
     pub fn save(&self) -> Result<()> {
@@ -88,10 +101,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn older_settings_files_get_new_defaults() {
-        let s: Settings = serde_json::from_str(r#"{"install_dir":"/games/Aniimo"}"#).unwrap();
-        assert!(s.single_window);
-        assert_eq!(s.single_window_size(), Some((1280, 800)));
+    fn single_window_is_opt_in_and_0_1_5_settings_are_migrated() {
+        assert!(!Settings::default().single_window);
+        // Saved by 0.1.5, which turned it on for everyone.
+        let old: Settings = serde_json::from_str(r#"{"install_dir":"/g","single_window":true}"#).unwrap();
+        assert_eq!(old.version, 0);
+        let s = old.migrate();
+        assert!(!s.single_window);
+        assert_eq!(s.single_window_size(), None);
+        // Chosen after the migration: kept.
+        let s: Settings = serde_json::from_str(r#"{"install_dir":"/g","single_window":true,"version":1}"#).unwrap();
+        assert!(s.migrate().single_window);
     }
 
     #[test]

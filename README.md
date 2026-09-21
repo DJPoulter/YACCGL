@@ -40,17 +40,19 @@ next to the Steam shortcut to apply it.
 
 ### Logging in on the Steam Deck
 
-The game asks for your email in a separate window. In Game Mode, Steam only sends keyboard
-input to the game's main window, so the on-screen keyboard can't type into it. Two fixes are
-built in:
+The game asks for your email in a separate window (FunPlus's login dialog). In Game Mode, Steam
+only sends keyboard input to the game's main window, so the on-screen keyboard can't type into
+it. What's built in so far:
 
 - **Log In button:** in Desktop Mode, press **Log In** next to the Steam shortcut. The game
   opens with the same Proton setup Steam uses, so the login is saved where Steam's launches look
   for it. Log in, close the game, and it should remember you when you start it from Steam, in
   Game Mode too.
-- **Single window** (on by default, in Preferences): the game runs inside one window (1280×800
-  on the Deck), so its login window shows inside the game and the on-screen keyboard
-  (**Steam + X**) types into it. Tap the email field first.
+- **Single window** (off by default, in Preferences): runs the game inside one fixed-size window
+  using Wine's virtual desktop. It didn't fix the login window in Game Mode in testing, so it's
+  opt-in only.
+
+If you skip or miss the email step, the game creates a guest account and doesn't ask again.
 
 To uninstall the launcher: `flatpak uninstall io.github.DJPoulter.YACCGL`. The game folder and the
 Steam shortcut are left alone; remove the shortcut first with the trash button if you want it gone.

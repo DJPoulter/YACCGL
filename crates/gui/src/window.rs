@@ -283,14 +283,14 @@ fn build_ui(application: &adw::Application) -> Ui {
 
     let single_row = adw::SwitchRow::builder()
         .title("Single window")
-        .subtitle("Keeps the game's login window inside the game, so the on-screen keyboard can type into it")
+        .subtitle("Runs the game inside one fixed-size window")
         .build();
     let size_row = adw::ComboRow::builder()
         .title("Window size")
         .model(&gtk::StringList::new(&WINDOW_SIZES.map(|(_, label)| label)))
         .build();
     let game_mode_prefs = adw::PreferencesGroup::builder()
-        .title("Game Mode")
+        .title("Window")
         .description("Takes effect the next time Aniimo starts.")
         .build();
     game_mode_prefs.add(&single_row);
