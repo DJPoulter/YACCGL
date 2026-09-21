@@ -1,4 +1,4 @@
-id: io.github.yaccgl.Launcher
+id: io.github.DJPoulter.YACCGL
 runtime: org.gnome.Platform
 runtime-version: '50'
 sdk: org.gnome.Sdk

@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <component type="desktop-application">
-  <id>io.github.yaccgl.Launcher</id>
+  <id>io.github.DJPoulter.YACCGL</id>
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>GPL-3.0-or-later</project_license>
-  <name>Yet Another Creature Collector Game Launcher</name>
+  <name>YACCGL</name>
   <summary>Install Aniimo and add it to Steam</summary>
-  <developer id="io.github.yaccgl">
+  <developer id="io.github.DJPoulter">
     <name>Yet Another Creature Collector Game Launcher contributors</name>
   </developer>
   <description>
@@ -23,7 +23,9 @@
       This project is not affiliated with Pawprint Interactive, FunPlus or Valve.
     </p>
   </description>
-  <launchable type="desktop-id">io.github.yaccgl.Launcher.desktop</launchable>
+  <url type="homepage">https://github.com/DJPoulter/YACCGL</url>
+  <url type="bugtracker">https://github.com/DJPoulter/YACCGL/issues</url>
+  <launchable type="desktop-id">io.github.DJPoulter.YACCGL.desktop</launchable>
   <content_rating type="oars-1.1"/>
   <supports>
     <control>pointing</control>

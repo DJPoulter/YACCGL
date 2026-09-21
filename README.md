@@ -88,8 +88,8 @@ Build the Flatpak bundle:
 ```bash
 docker build -t yaccgl-flatpak -f docker/flatpak.Dockerfile docker
 docker run --rm --privileged -v "$PWD:/src" yaccgl-flatpak sh -c \
-  'flatpak-builder --disable-rofiles-fuse --install-deps-from=flathub --force-clean --repo=repo build-dir flatpak/io.github.yaccgl.Launcher.yml &&
-   flatpak build-bundle repo yet-another-creature-collector-game-launcher.flatpak io.github.yaccgl.Launcher --runtime-repo=https://dl.flathub.org/repo/flathub.flatpakrepo'
+  'flatpak-builder --disable-rofiles-fuse --install-deps-from=flathub --force-clean --repo=repo build-dir flatpak/io.github.DJPoulter.YACCGL.yml &&
+   flatpak build-bundle repo yet-another-creature-collector-game-launcher.flatpak io.github.DJPoulter.YACCGL --runtime-repo=https://dl.flathub.org/repo/flathub.flatpakrepo'
 ```
 
 ## License
