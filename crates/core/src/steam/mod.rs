@@ -18,6 +18,9 @@ use crate::{Error, Result};
 /// Proton 10 is the only version Aniimo currently runs on (newer ones crash).
 pub const DEFAULT_COMPAT_TOOL: &str = "proton_10";
 
+/// Wine drive letter that points at the install directory; see [`Steam::map_game_drive`].
+pub const GAME_DRIVE: &str = "g:";
+
 const STEAMID64_BASE: u64 = 76_561_197_960_265_728;
 const FLATPAK_STEAM_ID: &str = "com.valvesoftware.Steam";
 
@@ -272,7 +275,45 @@ impl Steam {
         if let Some(tool) = &spec.compat_tool {
             self.set_compat_tool(appid, Some(tool))?;
         }
+        self.map_game_drive(appid, &spec.start_dir)?;
         Ok(Registered { appid, created, artwork, artwork_error })
+    }
+
+    /// The Proton prefix Steam uses for a non-Steam shortcut. It always lives in the
+    /// main Steam library, and only exists once the game has been launched (or
+    /// [`Self::map_game_drive`] has created it).
+    pub fn prefix_dir(&self, appid: u32) -> PathBuf {
+        self.root.join("steamapps/compatdata").join(appid.to_string()).join("pfx")
+    }
+
+    /// Give the install directory its own drive letter ([`GAME_DRIVE`]) in the game's prefix.
+    ///
+    /// Steam runs Proton inside a container whose `/` is a small RAM-backed tmpfs. Without
+    /// this the game runs from `Z:\home\...`, and its free-space check on `Z:/` sees that
+    /// tmpfs (about half the RAM) instead of the real disk, then refuses to download.
+    /// Wine maps a path to the drive whose root is closest, so with this link the game
+    /// runs from `G:\` and sees the install disk. Proton keeps extra `dosdevices` links;
+    /// it only manages `c:`, `z:`, `s:` and `t:`. This doesn't touch Steam's own files,
+    /// so Steam may be running.
+    pub fn map_game_drive(&self, appid: u32, install_dir: &Path) -> Result<()> {
+        let dosdevices = self.prefix_dir(appid).join("dosdevices");
+        fs::create_dir_all(&dosdevices).io_ctx(|| format!("creating {}", dosdevices.display()))?;
+        let link = dosdevices.join(GAME_DRIVE);
+        match fs::read_link(&link) {
+            Ok(target) if target == install_dir => return Ok(()),
+            Ok(_) => fs::remove_file(&link).io_ctx(|| format!("replacing {}", link.display()))?,
+            Err(_) if link.symlink_metadata().is_ok() => {
+                return Err(Error::Steam(format!("{} exists and is not a drive link", link.display())));
+            }
+            Err(_) => {}
+        }
+        symlink_dir(install_dir, &link).io_ctx(|| format!("creating {}", link.display()))
+    }
+
+    /// Whether [`Self::map_game_drive`] is in place for `install_dir`.
+    pub fn game_drive_mapped(&self, appid: u32, install_dir: &Path) -> bool {
+        fs::read_link(self.prefix_dir(appid).join("dosdevices").join(GAME_DRIVE))
+            .is_ok_and(|t| t == install_dir)
     }
 
     /// Remove the shortcut, its compat tool mapping and artwork. Steam must not be running.
@@ -454,6 +495,16 @@ fn write_backed_up(path: &Path, data: &[u8]) -> Result<()> {
     fs::rename(&tmp, path).io_ctx(|| format!("replacing {}", path.display()))
 }
 
+#[cfg(unix)]
+fn symlink_dir(target: &Path, link: &Path) -> std::io::Result<()> {
+    std::os::unix::fs::symlink(target, link)
+}
+
+#[cfg(not(unix))]
+fn symlink_dir(target: &Path, link: &Path) -> std::io::Result<()> {
+    std::os::windows::fs::symlink_dir(target, link)
+}
+
 fn mtime_secs(p: &Path) -> u64 {
     fs::metadata(p)
         .and_then(|m| m.modified())
@@ -571,6 +622,40 @@ mod tests {
         assert_eq!(steam.compat_tool(reg.appid), None);
         assert!(!steam.grid_dir(&user).join(format!("{}p.jpg", reg.appid)).exists());
         assert!(steam.grid_dir(&user).join("999p.jpg").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn maps_game_drive_and_follows_moves() {
+        let home = tempfile::tempdir().unwrap();
+        let steam = fake_steam(home.path());
+        let (a, b) = (home.path().join("Games/Aniimo"), home.path().join("Other/Aniimo"));
+        let link = steam.prefix_dir(42).join("dosdevices/g:");
+
+        // Works before Proton has created the prefix.
+        steam.map_game_drive(42, &a).unwrap();
+        assert_eq!(fs::read_link(&link).unwrap(), a);
+        assert!(steam.game_drive_mapped(42, &a));
+        steam.map_game_drive(42, &a).unwrap();
+
+        steam.map_game_drive(42, &b).unwrap();
+        assert_eq!(fs::read_link(&link).unwrap(), b);
+        assert!(!steam.game_drive_mapped(42, &a));
+
+        // Proton's own drives are left alone.
+        std::os::unix::fs::symlink("/", link.with_file_name("z:")).unwrap();
+        steam.map_game_drive(42, &a).unwrap();
+        assert_eq!(fs::read_link(link.with_file_name("z:")).unwrap(), PathBuf::from("/"));
+    }
+
+    #[test]
+    fn register_maps_game_drive() {
+        let home = tempfile::tempdir().unwrap();
+        let steam = fake_steam(home.path());
+        let user = steam.users().remove(0);
+        let spec = spec(home.path());
+        let reg = steam.register(&crate::http::agent(), &user, &spec).unwrap();
+        assert!(steam.game_drive_mapped(reg.appid, &spec.start_dir));
     }
 
     #[test]

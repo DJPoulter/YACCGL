@@ -79,6 +79,10 @@ yaccgl steam doctor                   # troubleshooting: Steam detection and eve
   Steam overwrites these files when it exits, which is why it has to be closed while they're
   edited.
 - Artwork comes from Aniimo's official Steam store assets.
+- The install folder is linked as drive `G:` in the game's Proton prefix
+  (`steamapps/compatdata/<id>/pfx/dosdevices/g:`). Steam runs Proton in a container whose root
+  is a RAM disk, so without this the game runs from `Z:\` and its free-space check sees only
+  a few GB. With it, the game runs from `G:\` and sees the real disk.
 
 ## Development
 

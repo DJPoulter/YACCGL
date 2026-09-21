@@ -280,6 +280,16 @@ fn steam_doctor(settings: &Settings) -> Result<()> {
     for steam in installs {
         println!("\nSteam: {} ({:?})", steam.root.display(), steam.flavor);
         println!("  Compat tool for {appid}: {}", steam.compat_tool(appid).unwrap_or_else(|| "none".into()));
+        let drive = steam.prefix_dir(appid).join("dosdevices").join(steam::GAME_DRIVE);
+        println!(
+            "  Game drive {}: {}",
+            steam::GAME_DRIVE,
+            match std::fs::read_link(&drive) {
+                Ok(t) if t == settings.install_dir => format!("-> {} (ok)", t.display()),
+                Ok(t) => format!("-> {} (WRONG, expected {})", t.display(), settings.install_dir.display()),
+                Err(_) => "not mapped (the game will see the wrong free space; run `yaccgl steam add`)".into(),
+            }
+        );
         for user in steam.users() {
             let path = steam.shortcuts_vdf(&user);
             let modified = std::fs::metadata(&path)

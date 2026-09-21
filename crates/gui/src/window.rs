@@ -124,6 +124,7 @@ pub fn build(application: &adw::Application) {
     }));
     app.connect_signals();
     app.reload_steam();
+    app.ensure_game_drive();
     app.refresh();
     app.ui.window.present();
     app.check_latest();
@@ -473,6 +474,25 @@ impl App {
         st.steam = steam;
         st.users = users;
         st.tools = tools;
+    }
+
+    /// Shortcuts added before the drive-letter fix (or after the install folder moved)
+    /// get the game's drive mapped here. This doesn't touch Steam's files, so no restart.
+    fn ensure_game_drive(&self) {
+        let (_, appid) = self.target();
+        let Some(user) = self.selected_user() else { return };
+        let (steam, dir) = {
+            let st = self.state.borrow();
+            let Some(steam) = st.steam.clone() else { return };
+            (steam, st.settings.install_dir.clone())
+        };
+        if !steam.shortcut_exists(&user, appid) || steam.game_drive_mapped(appid, &dir) {
+            return;
+        }
+        match steam.map_game_drive(appid, &dir) {
+            Ok(()) => self.toast("Fixed the game's free-space check. Restart Aniimo if it's running."),
+            Err(e) => self.toast(&format!("Couldn't set up the game drive: {e}")),
+        }
     }
 
     fn selected_user(&self) -> Option<User> {
