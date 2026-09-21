@@ -1,0 +1,22 @@
+[package]
+name = "nacl-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+thiserror.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+ureq = { version = "3", features = ["json"] }
+md-5 = "0.11"
+hex = "0.4"
+sevenz-rust2 = { version = "0.23", default-features = false }
+crc32fast = "1"
+dirs = "7"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[dev-dependencies]
+tempfile = "3"
