@@ -151,10 +151,10 @@ fn fetch_once(
         on(Transfer::Downloading { done, total });
     }
     file.flush().io_ctx(|| format!("writing {}", part.display()))?;
-    if let Some(t) = total {
-        if done < t {
-            return Err(Error::Http(format!("download ended early ({done} of {t} bytes)")));
-        }
+    if let Some(t) = total
+        && done < t
+    {
+        return Err(Error::Http(format!("download ended early ({done} of {t} bytes)")));
     }
     Ok(())
 }

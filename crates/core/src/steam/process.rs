@@ -95,12 +95,23 @@ pub fn shutdown(flavor: Flavor, timeout: Duration) -> Result<()> {
 
 /// Start Steam detached from this process.
 pub fn start(flavor: Flavor) -> Result<()> {
+    spawn_detached(flavor, "")
+}
+
+/// Launch a non-Steam shortcut through Steam (starting Steam if needed).
+pub fn launch_shortcut(flavor: Flavor, appid: u32) -> Result<()> {
+    // Shortcut game ids are the 32-bit app id in the high half, with type 0x02000000.
+    let game_id = (u64::from(appid) << 32) | 0x0200_0000;
+    spawn_detached(flavor, &format!("steam://rungameid/{game_id}"))
+}
+
+fn spawn_detached(flavor: Flavor, arg: &str) -> Result<()> {
     let launch = match flavor {
         Flavor::Native => "steam".to_string(),
         Flavor::Flatpak => format!("flatpak run {FLATPAK_STEAM_ID}"),
     };
     host_command("sh")
-        .args(["-c", &format!("setsid {launch} >/dev/null 2>&1 &")])
+        .args(["-c", &format!("setsid {launch} {arg} >/dev/null 2>&1 &")])
         .stdin(Stdio::null())
         .status()
         .map_err(|e| Error::Steam(format!("could not start Steam: {e}")))?;

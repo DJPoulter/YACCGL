@@ -1,5 +1,15 @@
 [package]
-name="nacl-gui"
-version.workspace=true
-edition.workspace=true
+name = "nacl-gui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "not-another-creature-launcher"
+path = "src/main.rs"
+
 [dependencies]
+nacl-core.workspace = true
+gtk = { package = "gtk4", version = "0.11", features = ["v4_12"] }
+adw = { package = "libadwaita", version = "0.9", features = ["v1_5"] }
+async-channel = "2"

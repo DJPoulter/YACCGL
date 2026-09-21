@@ -2,6 +2,6 @@
 FROM rust:1-trixie
 RUN apt-get update && apt-get install -y --no-install-recommends \
       libgtk-4-dev libadwaita-1-dev pkg-config \
-      xvfb xauth dbus-x11 imagemagick p7zip-full \
+      xvfb xauth dbus-x11 imagemagick p7zip-full xdotool \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /src

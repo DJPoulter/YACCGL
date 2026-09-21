@@ -105,16 +105,16 @@ impl Steam {
     /// Users that have a `userdata` directory, most recently logged in first.
     pub fn users(&self) -> Vec<User> {
         let mut logins = std::collections::HashMap::new();
-        if let Ok(src) = fs::read_to_string(self.root.join("config/loginusers.vdf")) {
-            if let Some(users) = text_vdf::parse(&src).ok().and_then(|r| r.get_obj("users").cloned()) {
-                for (id64, v) in users.0 {
-                    let (Ok(id64), text_vdf::Value::Obj(o)) = (id64.parse::<u64>(), v) else { continue };
-                    let Some(account) = id64.checked_sub(STEAMID64_BASE) else { continue };
-                    let persona = o.get_str("PersonaName").map(str::to_owned);
-                    let recent = o.get_str("MostRecent") == Some("1");
-                    let stamp = o.get_str("Timestamp").and_then(|t| t.parse::<u64>().ok()).unwrap_or(0);
-                    logins.insert(account as u32, (persona, recent, stamp));
-                }
+        if let Ok(src) = fs::read_to_string(self.root.join("config/loginusers.vdf"))
+            && let Some(users) = text_vdf::parse(&src).ok().and_then(|r| r.get_obj("users").cloned())
+        {
+            for (id64, v) in users.0 {
+                let (Ok(id64), text_vdf::Value::Obj(o)) = (id64.parse::<u64>(), v) else { continue };
+                let Some(account) = id64.checked_sub(STEAMID64_BASE) else { continue };
+                let persona = o.get_str("PersonaName").map(str::to_owned);
+                let recent = o.get_str("MostRecent") == Some("1");
+                let stamp = o.get_str("Timestamp").and_then(|t| t.parse::<u64>().ok()).unwrap_or(0);
+                logins.insert(account as u32, (persona, recent, stamp));
             }
         }
 
@@ -135,6 +135,28 @@ impl Steam {
             .collect();
         users.sort_by(|(a, sa), (b, sb)| b.most_recent.cmp(&a.most_recent).then(sb.cmp(sa)));
         users.into_iter().map(|(u, _)| u).collect()
+    }
+
+    /// Custom compat tools (e.g. GE-Proton) installed in `compatibilitytools.d`,
+    /// as `(internal name, display name)`.
+    pub fn custom_compat_tools(&self) -> Vec<(String, String)> {
+        let mut tools = Vec::new();
+        for entry in fs::read_dir(self.root.join("compatibilitytools.d")).into_iter().flatten().flatten() {
+            let Ok(src) = fs::read_to_string(entry.path().join("compatibilitytool.vdf")) else { continue };
+            let Ok(root) = text_vdf::parse(&src) else { continue };
+            let Some(list) = root.get_obj("compatibilitytools").and_then(|o| o.get_obj("compat_tools")) else {
+                continue;
+            };
+            for (internal, v) in &list.0 {
+                let display = match v {
+                    text_vdf::Value::Obj(o) => o.get_str("display_name").unwrap_or(internal),
+                    text_vdf::Value::Str(_) => internal,
+                };
+                tools.push((internal.clone(), display.to_owned()));
+            }
+        }
+        tools.sort_by(|a, b| b.1.cmp(&a.1));
+        tools
     }
 
     /// Look up an existing shortcut for this game by its app id.
@@ -474,6 +496,20 @@ mod tests {
         assert_eq!(steam.compat_tool(reg.appid), None);
         assert!(!steam.grid_dir(&user).join(format!("{}p.jpg", reg.appid)).exists());
         assert!(steam.grid_dir(&user).join("999p.jpg").exists());
+    }
+
+    #[test]
+    fn finds_custom_compat_tools() {
+        let home = tempfile::tempdir().unwrap();
+        let steam = fake_steam(home.path());
+        let dir = steam.root.join("compatibilitytools.d/GE-Proton10-15");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(
+            dir.join("compatibilitytool.vdf"),
+            "\"compatibilitytools\"\n{\n  \"compat_tools\"\n  {\n    \"GE-Proton10-15\"\n    {\n      \"install_path\" \".\"\n      \"display_name\" \"GE-Proton10-15\"\n      \"from_oslist\" \"windows\"\n      \"to_oslist\" \"linux\"\n    }\n  }\n}\n",
+        )
+        .unwrap();
+        assert_eq!(steam.custom_compat_tools(), vec![("GE-Proton10-15".into(), "GE-Proton10-15".into())]);
     }
 
     #[test]

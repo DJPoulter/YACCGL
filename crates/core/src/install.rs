@@ -85,18 +85,18 @@ pub fn install(
     let already = fs::metadata(download::part_path(&archive)).map_or(0, |m| m.len())
         + fs::metadata(&archive).map_or(0, |m| m.len());
     let needed = required_space(package).saturating_sub(already);
-    if let Some(free) = space::available(dir) {
-        if free < needed {
-            return Err(Error::Io {
-                context: format!(
-                    "not enough free space in {}: {} needed, {} available",
-                    dir.display(),
-                    space::human(needed),
-                    space::human(free)
-                ),
-                source: std::io::Error::from(std::io::ErrorKind::StorageFull),
-            });
-        }
+    if let Some(free) = space::available(dir)
+        && free < needed
+    {
+        return Err(Error::Io {
+            context: format!(
+                "not enough free space in {}: {} needed, {} available",
+                dir.display(),
+                space::human(needed),
+                space::human(free)
+            ),
+            source: std::io::Error::from(std::io::ErrorKind::StorageFull),
+        });
     }
 
     let urls = package.download_urls();

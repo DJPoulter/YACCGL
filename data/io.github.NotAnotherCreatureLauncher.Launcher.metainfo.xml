@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.NotAnotherCreatureLauncher.Launcher</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <name>NotAnotherCreatureLauncher</name>
+  <summary>Install Aniimo and add it to Steam</summary>
+  <developer id="io.github.NotAnotherCreatureLauncher">
+    <name>NotAnotherCreatureLauncher contributors</name>
+  </developer>
+  <description>
+    <p>
+      An unofficial installer for the standalone PC version of Aniimo, made for the Steam Deck
+      and other Linux PCs.
+    </p>
+    <ul>
+      <li>Downloads the game from its official servers and keeps it up to date</li>
+      <li>Lets you choose where to install it, including SD cards</li>
+      <li>Adds it to Steam as a non-Steam game with the right Proton version already set</li>
+      <li>Adds the game's official library artwork</li>
+    </ul>
+    <p>
+      This project is not affiliated with Pawprint Interactive, FunPlus or Valve.
+    </p>
+  </description>
+  <launchable type="desktop-id">io.github.NotAnotherCreatureLauncher.Launcher.desktop</launchable>
+  <content_rating type="oars-1.1"/>
+  <supports>
+    <control>pointing</control>
+    <control>keyboard</control>
+    <control>touch</control>
+  </supports>
+  <requires>
+    <display_length compare="ge">360</display_length>
+  </requires>
+  <releases>
+    <release version="0.1.0" date="2026-09-21">
+      <description>
+        <p>First release.</p>
+      </description>
+    </release>
+  </releases>
+</component>

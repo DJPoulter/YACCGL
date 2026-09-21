@@ -1,0 +1,47 @@
+id: io.github.NotAnotherCreatureLauncher.Launcher
+runtime: org.gnome.Platform
+runtime-version: '50'
+sdk: org.gnome.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+command: not-another-creature-launcher
+finish-args:
+  - --share=network
+  - --share=ipc
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --device=dri
+  # Install location (default ~/Games/Aniimo) and Steam's config (~/.steam, ~/.local/share/Steam,
+  # or ~/.var/app/com.valvesoftware.Steam for Flatpak Steam).
+  - --filesystem=home
+  # SD cards and external drives on the Steam Deck.
+  - --filesystem=/run/media
+  # flatpak-spawn --host: detect, close and restart Steam around config edits.
+  - --talk-name=org.freedesktop.Flatpak
+build-options:
+  append-path: /usr/lib/sdk/rust-stable/bin
+modules:
+  - name: not-another-creature-launcher
+    buildsystem: simple
+    build-options:
+      env:
+        CARGO_HOME: /run/build/not-another-creature-launcher/cargo
+      # Local builds fetch crates directly. A Flathub submission needs a generated
+      # cargo-sources.json (flatpak-cargo-generator) instead of network access.
+      build-args:
+        - --share=network
+    build-commands:
+      - cargo build --release --locked -p nacl-gui
+      - install -Dm755 target/release/not-another-creature-launcher -t /app/bin/
+      - install -Dm644 data/${FLATPAK_ID}.desktop -t /app/share/applications/
+      - install -Dm644 data/${FLATPAK_ID}.metainfo.xml -t /app/share/metainfo/
+      - install -Dm644 data/${FLATPAK_ID}.svg -t /app/share/icons/hicolor/scalable/apps/
+    sources:
+      - type: dir
+        path: ..
+        skip:
+          - target
+          - target-shots
+          - build-dir
+          - repo
+          - .flatpak-builder
