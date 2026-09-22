@@ -918,7 +918,6 @@ impl App {
                 })
             })
             .await;
-            drop(rx);
             a.state.borrow_mut().task = None;
             a.ui.progress.set_visible(false);
             a.ui.progress_label.set_visible(false);
