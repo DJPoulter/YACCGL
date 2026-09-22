@@ -36,6 +36,11 @@
     <display_length compare="ge">360</display_length>
   </requires>
   <releases>
+    <release version="0.1.11" date="2026-09-22">
+      <description>
+        <p>Check for updates no longer uses the GitHub REST API (which was hitting the unauthenticated rate limit and returning HTTP 403).</p>
+      </description>
+    </release>
     <release version="0.1.10" date="2026-09-22">
       <description>
         <p>Preferences → Verify checks the YooAsset cache (floors and world data) and removes corrupt files so the game can re-download them.</p>

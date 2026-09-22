@@ -1,11 +1,12 @@
 //! Check GitHub Releases for a newer YACCGL Flatpak and install it in place.
+//!
+//! Uses `releases.atom` + `github.com/.../releases/download/...` instead of the
+//! REST API, so unauthenticated clients aren't blocked by the 60 req/hour rate limit.
 
 use std::fs::{self, File};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
-
-use serde::Deserialize;
 
 use crate::error::IoContext;
 use crate::steam::process;
@@ -25,59 +26,95 @@ pub struct AvailableUpdate {
     pub prerelease: bool,
 }
 
-#[derive(Debug, Deserialize)]
-struct GhRelease {
-    tag_name: String,
-    name: Option<String>,
-    draft: bool,
-    prerelease: bool,
-    assets: Vec<GhAsset>,
-}
-
-#[derive(Debug, Deserialize)]
-struct GhAsset {
-    name: String,
-    browser_download_url: String,
-    size: u64,
-}
-
-/// Newest published release (including betas) that ships the Flatpak bundle and is
-/// newer than `current` (e.g. `env!("CARGO_PKG_VERSION")`).
+/// Newest published release that ships the Flatpak bundle and is newer than `current`
+/// (e.g. `env!("CARGO_PKG_VERSION")`).
 pub fn check(agent: &ureq::Agent, current: &str) -> Result<Option<AvailableUpdate>> {
-    let url = format!("https://api.github.com/repos/{REPO}/releases?per_page=15");
+    let url = format!("https://github.com/{REPO}/releases.atom");
     let mut res = agent
         .get(&url)
-        .header("Accept", "application/vnd.github+json")
+        .header("Accept", "application/atom+xml, application/xml, text/xml;q=0.9, */*;q=0.8")
         .call()
         .map_err(|e| Error::Http(e.to_string()))?;
-    if !(200..300).contains(&res.status().as_u16()) {
-        return Err(Error::Http(format!("GitHub returned HTTP {}", res.status())));
+    let status = res.status().as_u16();
+    if !(200..300).contains(&status) {
+        return Err(Error::Http(format!("GitHub releases feed returned HTTP {status}")));
     }
-    let releases: Vec<GhRelease> = res.body_mut().read_json().map_err(|e| Error::Http(e.to_string()))?;
+    let body = res.body_mut().read_to_string().map_err(|e| Error::Http(e.to_string()))?;
 
-    for rel in releases {
-        if rel.draft {
-            continue;
-        }
-        let Some(asset) = rel.assets.iter().find(|a| a.name == BUNDLE_NAME) else {
-            continue;
-        };
-        let version = rel.tag_name.trim_start_matches('v').to_owned();
+    for entry in atom_entries(&body) {
+        let version = entry.tag.trim_start_matches('v').to_owned();
         if !is_newer(&version, current) {
             continue;
         }
-        let tag = rel.tag_name;
-        let name = rel.name.unwrap_or_else(|| tag.clone());
+        let tag = entry.tag;
+        let name = entry.title.unwrap_or_else(|| tag.clone());
+        let prerelease = version.contains('-');
         return Ok(Some(AvailableUpdate {
+            download_url: format!("https://github.com/{REPO}/releases/download/{tag}/{BUNDLE_NAME}"),
             tag,
             version,
             name,
-            download_url: asset.browser_download_url.clone(),
-            size: asset.size,
-            prerelease: rel.prerelease,
+            size: 0, // unknown without the REST API; download skips the size check
+            prerelease,
         }));
     }
     Ok(None)
+}
+
+struct AtomEntry {
+    tag: String,
+    title: Option<String>,
+}
+
+/// Pull release tags from a GitHub releases Atom feed (newest first).
+fn atom_entries(xml: &str) -> Vec<AtomEntry> {
+    let mut out = Vec::new();
+    let mut rest = xml;
+    while let Some(start) = rest.find("<entry>") {
+        let after = &rest[start + 7..];
+        let Some(end) = after.find("</entry>") else { break };
+        let entry = &after[..end];
+        rest = &after[end + 8..];
+
+        let tag = entry_tag(entry);
+        let Some(tag) = tag else { continue };
+        let title = xml_tag_text(entry, "title");
+        out.push(AtomEntry { tag, title });
+    }
+    out
+}
+
+fn entry_tag(entry: &str) -> Option<String> {
+    // <id>tag:github.com,2008:Repository/123/v0.1.10</id>
+    if let Some(id) = xml_tag_text(entry, "id") {
+        if let Some(tag) = id.rsplit('/').next() {
+            if tag.starts_with('v') || tag.chars().next().is_some_and(|c| c.is_ascii_digit()) {
+                return Some(tag.to_owned());
+            }
+        }
+    }
+    // <link ... href="https://github.com/DJPoulter/YACCGL/releases/tag/v0.1.10"/>
+    for part in entry.split("href=\"").skip(1) {
+        let href = part.split('"').next().unwrap_or("");
+        if let Some(tag) = href.rsplit("/tag/").nth(1) {
+            let tag = tag.trim_end_matches('/');
+            if !tag.is_empty() {
+                return Some(tag.to_owned());
+            }
+        }
+    }
+    None
+}
+
+fn xml_tag_text(block: &str, tag: &str) -> Option<String> {
+    let open = format!("<{tag}");
+    let close = format!("</{tag}>");
+    let start = block.find(&open)?;
+    let after_open = &block[start + open.len()..];
+    let text_start = after_open.find('>')? + 1;
+    let text = &after_open[text_start..];
+    let end = text.find(&close)?;
+    Some(text[..end].trim().to_owned())
 }
 
 /// Download the Flatpak bundle to a temp file.
@@ -114,6 +151,10 @@ pub fn download(agent: &ureq::Agent, update: &AvailableUpdate, dest: &Path) -> R
             "download size mismatch: got {done} bytes, expected {}",
             update.size
         )));
+    }
+    if done == 0 {
+        let _ = fs::remove_file(&part);
+        return Err(Error::Http("download was empty".into()));
     }
     fs::rename(&part, dest).io_ctx(|| format!("moving {}", dest.display()))
 }
@@ -216,5 +257,26 @@ mod tests {
         assert!(!is_newer("0.1.6", "0.1.7"));
         assert!(!is_newer("0.1.7-beta", "0.1.7"));
         assert!(!is_newer("0.1.7", "0.1.7"));
+    }
+
+    #[test]
+    fn parses_releases_atom() {
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <entry>
+    <id>tag:github.com,2008:Repository/1380416239/v0.1.10</id>
+    <link rel="alternate" href="https://github.com/DJPoulter/YACCGL/releases/tag/v0.1.10"/>
+    <title>YACCGL 0.1.10</title>
+  </entry>
+  <entry>
+    <id>tag:github.com,2008:Repository/1380416239/v0.1.9</id>
+    <title>YACCGL 0.1.9</title>
+  </entry>
+</feed>"#;
+        let entries = atom_entries(xml);
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].tag, "v0.1.10");
+        assert_eq!(entries[0].title.as_deref(), Some("YACCGL 0.1.10"));
+        assert_eq!(entries[1].tag, "v0.1.9");
     }
 }
