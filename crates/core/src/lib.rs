@@ -8,6 +8,7 @@ pub mod extract;
 pub mod fpx_login;
 pub mod http;
 pub mod install;
+pub mod self_update;
 pub mod settings;
 pub mod space;
 pub mod steam;

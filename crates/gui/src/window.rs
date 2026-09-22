@@ -41,6 +41,8 @@ enum Task {
     Steam,
     /// The game is running from the Log In button.
     Game,
+    /// Checking/downloading/installing a Flatpak update of this launcher.
+    SelfUpdate,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -98,6 +100,7 @@ struct Ui {
     login_row: adw::ActionRow,
     login_button: gtk::Button,
     login_info_button: gtk::Button,
+    update_button: gtk::Button,
     prefs: adw::PreferencesDialog,
 }
 
@@ -313,10 +316,26 @@ fn build_ui(application: &adw::Application) -> Ui {
     let files_prefs = adw::PreferencesGroup::builder().title("Game files").build();
     files_prefs.add(&repair_row);
 
+    let launcher_version_row = adw::ActionRow::builder()
+        .title("YACCGL version")
+        .subtitle(env!("CARGO_PKG_VERSION"))
+        .build();
+    let update_button = gtk::Button::builder()
+        .label("Check for updates")
+        .valign(gtk::Align::Center)
+        .build();
+    launcher_version_row.add_suffix(&update_button);
+    let launcher_prefs = adw::PreferencesGroup::builder()
+        .title("Launcher")
+        .description("Updates this Flatpak in place from GitHub Releases. No uninstall needed.")
+        .build();
+    launcher_prefs.add(&launcher_version_row);
+
     let prefs_page = adw::PreferencesPage::new();
     prefs_page.add(&shortcut_prefs);
     prefs_page.add(&game_mode_prefs);
     prefs_page.add(&files_prefs);
+    prefs_page.add(&launcher_prefs);
     let prefs = adw::PreferencesDialog::builder().title("Preferences").build();
     prefs.add(&prefs_page);
 
@@ -356,6 +375,7 @@ fn build_ui(application: &adw::Application) -> Ui {
         login_row,
         login_button,
         login_info_button,
+        update_button,
         prefs,
     }
 }
@@ -381,6 +401,11 @@ impl App {
         ui.repair.connect_clicked(move |_| {
             a.ui.prefs.close();
             a.start_install(true);
+        });
+        let a = self.clone();
+        ui.update_button.connect_clicked(move |_| {
+            let a = a.clone();
+            glib::spawn_future_local(async move { a.check_launcher_update().await });
         });
         let a = self.clone();
         ui.steam_button.connect_clicked(move |_| {
@@ -824,6 +849,12 @@ impl App {
         ui.login_row.set_visible(shortcut && exe.is_file());
         ui.login_button.set_sensitive(!busy && !process::in_game_mode());
         ui.login_button.set_label(if st.task == Some(Task::Game) { "Running…" } else { "Log In" });
+        ui.update_button.set_sensitive(!busy);
+        ui.update_button.set_label(if st.task == Some(Task::SelfUpdate) {
+            "Updating…"
+        } else {
+            "Check for updates"
+        });
         ui.user_row.set_sensitive(!busy && st.users.len() > 1);
         ui.size_row.set_sensitive(st.settings.single_window);
 
@@ -987,6 +1018,106 @@ impl App {
 
     /// Steam rewrites its config on exit, so it must be closed while we edit it.
     /// Returns whether it's OK to go ahead (closing Steam if it's running).
+    /// Check GitHub for a newer Flatpak and install it in place (no uninstall).
+    async fn check_launcher_update(&self) {
+        const CURRENT: &str = env!("CARGO_PKG_VERSION");
+        if !process::in_flatpak() {
+            self.error(
+                "Flatpak only",
+                "Auto-update works when YACCGL is installed as a Flatpak. Download the latest .flatpak from GitHub Releases and run:\n\nflatpak install --user ~/Downloads/yet-another-creature-collector-game-launcher.flatpak",
+            );
+            return;
+        }
+        if self.state.borrow().task.is_some() {
+            return;
+        }
+
+        self.state.borrow_mut().task = Some(Task::SelfUpdate);
+        self.refresh();
+        self.ui.prefs.add_toast(
+            adw::Toast::builder().title("Checking for updates…").timeout(2).build(),
+        );
+
+        let result = gio::spawn_blocking(|| yaccgl_core::self_update::check(&http::agent(), CURRENT)).await;
+        self.state.borrow_mut().task = None;
+        self.refresh();
+
+        let update = match result {
+            Ok(Ok(Some(u))) => u,
+            Ok(Ok(None)) => {
+                self.toast(&format!("You're on the latest version ({CURRENT})."));
+                return;
+            }
+            Ok(Err(e)) => {
+                self.error("Couldn't check for updates", &e.to_string());
+                return;
+            }
+            Err(_) => {
+                self.error("Couldn't check for updates", "An unexpected error occurred.");
+                return;
+            }
+        };
+
+        let channel = if update.prerelease { "beta" } else { "release" };
+        let size = human(update.size);
+        if !self
+            .confirm(
+                &format!("Update to {}?", update.version),
+                &format!(
+                    "A new {channel} is available ({}) — about {size}.\n\n\
+                     It installs over your current Flatpak. YACCGL will quit when it's done; open it again from the app menu.",
+                    update.name
+                ),
+                "Update",
+                false,
+            )
+            .await
+        {
+            return;
+        }
+
+        self.ui.prefs.close();
+        self.state.borrow_mut().task = Some(Task::SelfUpdate);
+        self.ui.progress_label.set_label("Downloading launcher update…");
+        self.ui.progress_label.set_visible(true);
+        self.ui.progress.set_fraction(0.0);
+        self.ui.progress.set_visible(true);
+        self.refresh();
+
+        let update2 = update.clone();
+        let apply = gio::spawn_blocking(move || yaccgl_core::self_update::apply(&http::agent(), &update2)).await;
+
+        self.state.borrow_mut().task = None;
+        self.ui.progress.set_visible(false);
+        self.ui.progress_label.set_visible(false);
+        self.refresh();
+
+        match apply {
+            Ok(Ok(())) => {
+                let quit = self
+                    .confirm(
+                        "Update installed",
+                        &format!(
+                            "YACCGL {} is ready. Quit now, then open the launcher again from the app menu.",
+                            update.version
+                        ),
+                        "Quit",
+                        false,
+                    )
+                    .await;
+                if quit {
+                    if let Some(app) = self.ui.window.application() {
+                        app.quit();
+                    } else {
+                        self.ui.window.close();
+                    }
+                }
+            }
+            Ok(Err(e)) => self.error("Couldn't install update", &e.to_string()),
+            Err(_) => self.error("Couldn't install update", "An unexpected error occurred."),
+        }
+    }
+
     async fn confirm_steam_change(&self) -> bool {
         if process::in_game_mode() {
             self.error(

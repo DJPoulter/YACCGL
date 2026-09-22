@@ -48,6 +48,9 @@ dialog. What's built in:
   FunPlus's login window (via `FPX.dll`) with the same Proton prefix Steam uses, so the login
   is saved for Game Mode. Sign in — the window may close on its own when you're done; if not,
   close it yourself. Then start Aniimo from Steam.
+- **Launcher updates:** ☰ → Preferences → **Check for updates** installs a newer Flatpak over
+  the current one (no uninstall). Or from a terminal:
+  `flatpak install --user ~/Downloads/yet-another-creature-collector-game-launcher.flatpak`
 - **Single window** (off by default, in Preferences): runs the game inside one fixed-size window
   using Wine's virtual desktop. It didn't fix the login window in Game Mode in testing, so it's
   opt-in only.
