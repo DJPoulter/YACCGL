@@ -115,10 +115,9 @@ bundle table is a FunPlus compact layout (not stock `ReadUTF8` hashes):
 | FileSize | `i32` |
 | refs | `u16` count + `i32` IDs |
 
-YACCGL Verify: parse that table → for each bundle, check `__data` size + CRC32 → delete the
-cache folder on failure so the next game launch re-downloads. Missing files are reported only
-(CDN URL for proactive repair still unknown; official Quick Repair `HashFile.txt` base is still
-uncaptured).
+YACCGL Verify: parse that table → for each bundle, find `cdata.uab` (or `__data`) under
+`CacheBundleFiles` → check **MD5 == FileHash** (primary). Size/CRC from the compact table are a
+fallback only. GUI Verify is check-only (does not delete); CLI `yaccgl verify` can still repair.
 
 Stock YooAsset 1.4.17 would use UTF-8 FileHash/FileCRC strings and `i64` sizes; Aniimo does not.
 

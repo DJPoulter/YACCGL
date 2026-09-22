@@ -12,7 +12,7 @@ use yaccgl_core::install::{self, Progress, Status};
 use yaccgl_core::settings::Settings;
 use yaccgl_core::space::{self, human};
 use yaccgl_core::steam::{self, ShortcutSpec, Steam, User, process};
-use yaccgl_core::yoo;
+use yaccgl_core::yoo::{self, BundleStatus};
 use yaccgl_core::{Error, GAME_NAME, http};
 
 use crate::APP_ID;
@@ -910,7 +910,8 @@ impl App {
         glib::spawn_future_local(async move {
             let result = gio::spawn_blocking(move || {
                 let mut last = Instant::now() - Duration::from_secs(1);
-                yoo::verify(&dir, true, &cancel, &mut |done, total| {
+                // Check only — never auto-delete. A bad CRC/size heuristic previously wiped good cache.
+                yoo::verify(&dir, false, &cancel, &mut |done, total| {
                     if last.elapsed() >= Duration::from_millis(100) {
                         last = Instant::now();
                         let _ = tx.send_blocking(Progress::Checking { done, total });
@@ -928,7 +929,6 @@ impl App {
                         || (report.cache_entries_on_disk == 0
                             && report.missing_count() == report.checked.len());
                     if empty_cache {
-                        // Toast truncates; this needs the full "launch & download" guidance.
                         a.error(
                             "No world data downloaded yet",
                             &format!(
@@ -941,14 +941,29 @@ impl App {
                                 report.checked.len()
                             ),
                         );
-                    } else {
-                        a.ui.toasts.add_toast(
-                            adw::Toast::builder()
-                                .title(report.summary())
-                                .timeout(8)
-                                .build(),
-                        );
+                        return;
                     }
+
+                    let bad: Vec<_> = report.bad().collect();
+                    if bad.is_empty() {
+                        a.toast(&format!("All {} asset bundles look good", report.checked.len()));
+                        return;
+                    }
+
+                    let missing = bad.iter().filter(|b| b.status == BundleStatus::Missing).count();
+                    let corrupt = bad.len() - missing;
+                    let body = format!(
+                        "{ok} OK, {missing} missing, {corrupt} failed checks (of {total}).\n\n\
+                         Cache: {}\n\n\
+                         Missing/failed files are re-downloaded the next time you launch Aniimo.\n\
+                         Use the CLI (`yaccgl verify`) if you want to delete failed cache folders first.",
+                        report.cache_root.as_ref().map(|p| p.display().to_string()).unwrap_or_default(),
+                        ok = report.ok_count(),
+                        missing = missing,
+                        corrupt = corrupt,
+                        total = report.checked.len(),
+                    );
+                    a.error("Verify results", &body);
                 }
                 Ok(Err(Error::Cancelled)) => a.toast("Verify cancelled"),
                 Ok(Err(e)) => a.error("Verify failed", &e.to_string()),

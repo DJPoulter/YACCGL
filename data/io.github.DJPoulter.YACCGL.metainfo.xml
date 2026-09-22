@@ -36,6 +36,11 @@
     <display_length compare="ge">360</display_length>
   </requires>
   <releases>
+    <release version="0.1.14" date="2026-09-22">
+      <description>
+        <p>Verify checks cache files by MD5 (FileHash) instead of a brittle size/CRC compare, and no longer deletes files from the GUI. 0.1.13 could wrongly remove good bundles.</p>
+      </description>
+    </release>
     <release version="0.1.13" date="2026-09-22">
       <description>
         <p>Verify looks in FunPlus's real cache path (Aniimo_Data/cvs/…/CacheBundleFiles/…/cdata.uab) instead of the stock YooAsset Sandbox layout.</p>

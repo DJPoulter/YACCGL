@@ -120,7 +120,7 @@ impl VerifyReport {
 
         let mut msg = format!("{} of {total} bundles need attention", bad.len());
         if corrupt > 0 {
-            msg.push_str(&format!(" ({corrupt} corrupt removed)"));
+            msg.push_str(&format!(" ({corrupt} failed checks)"));
         }
         if missing > 0 {
             msg.push_str(&format!(" ({missing} not downloaded yet)"));
@@ -190,7 +190,17 @@ fn expected_cache_dir(root: Option<&Path>, file_hash: &str) -> PathBuf {
 }
 
 fn data_file_in(dir: &Path) -> Option<PathBuf> {
-    for name in [DATA_CDATA, DATA_STOCK] {
+    for name in [DATA_CDATA, DATA_STOCK, "__data.uab"] {
+        let p = dir.join(name);
+        if p.is_file() {
+            return Some(p);
+        }
+    }
+    None
+}
+
+fn info_file_in(dir: &Path) -> Option<PathBuf> {
+    for name in ["cinfo", "__info"] {
         let p = dir.join(name);
         if p.is_file() {
             return Some(p);
@@ -207,19 +217,111 @@ fn check_bundle(bundle: &Bundle, data_path: &Path, cancel: &AtomicBool) -> Resul
         Err(_) => return Ok(BundleStatus::Unreadable),
     };
     let actual_size = meta.len();
+
+    // FunPlus names cache folders by FileHash; in YooAsset that is the MD5 of the payload.
+    // Prefer MD5 — the compact manifest's size/CRC fields have disagreed with on-disk cdata.uab.
+    let actual_md5 = match file_md5_hex(data_path, cancel) {
+        Ok(h) => h,
+        Err(Error::Cancelled) => return Err(Error::Cancelled),
+        Err(_) => return Ok(BundleStatus::Unreadable),
+    };
+    if actual_md5 == bundle.file_hash {
+        return Ok(BundleStatus::Ok);
+    }
+
+    // Companion info file (stock YooAsset Middle verify): trust its size + CRC when present.
+    if let Some(info) = data_path.parent().and_then(info_file_in)
+        && let Ok((info_crc, info_size)) = read_cache_info(&info)
+    {
+        if actual_size != info_size {
+            return Ok(BundleStatus::SizeMismatch { actual: actual_size });
+        }
+        let actual_crc = match file_crc32_hex(data_path, cancel) {
+            Ok(c) => c,
+            Err(Error::Cancelled) => return Err(Error::Cancelled),
+            Err(_) => return Ok(BundleStatus::Unreadable),
+        };
+        if crc_matches(&actual_crc, &info_crc) {
+            return Ok(BundleStatus::Ok);
+        }
+        return Ok(BundleStatus::CrcMismatch { actual: actual_crc });
+    }
+
+    // Manifest fallback: size then CRC (accept either byte order for the 4 CRC bytes).
     if actual_size != bundle.file_size {
         return Ok(BundleStatus::SizeMismatch { actual: actual_size });
     }
-
     let actual_crc = match file_crc32_hex(data_path, cancel) {
         Ok(c) => c,
         Err(Error::Cancelled) => return Err(Error::Cancelled),
         Err(_) => return Ok(BundleStatus::Unreadable),
     };
-    if actual_crc != bundle.file_crc {
-        return Ok(BundleStatus::CrcMismatch { actual: actual_crc });
+    if crc_matches(&actual_crc, &bundle.file_crc) {
+        return Ok(BundleStatus::Ok);
     }
-    Ok(BundleStatus::Ok)
+    Ok(BundleStatus::CrcMismatch { actual: actual_crc })
+}
+
+fn crc_matches(actual_le_hex: &str, expected_hex: &str) -> bool {
+    if actual_le_hex.eq_ignore_ascii_case(expected_hex) {
+        return true;
+    }
+    // Manifest may store the CRC32 bytes big-endian; HashUtility uses little-endian.
+    if expected_hex.len() == 8 && expected_hex.chars().all(|c| c.is_ascii_hexdigit()) {
+        let rev: String = expected_hex
+            .as_bytes()
+            .chunks(2)
+            .rev()
+            .map(|c| std::str::from_utf8(c).unwrap_or(""))
+            .collect();
+        if actual_le_hex.eq_ignore_ascii_case(&rev) {
+            return true;
+        }
+    }
+    false
+}
+
+/// Stock `CacheFileInfo`: UTF-8 CRC string + i64 size.
+fn read_cache_info(path: &Path) -> Result<(String, u64)> {
+    let data = fs::read(path).io_ctx(|| format!("reading {}", path.display()))?;
+    let mut i = 0usize;
+    if data.len() < 2 {
+        return Err(Error::Yoo("cache info too short".into()));
+    }
+    let n = u16::from_le_bytes(data[0..2].try_into().unwrap()) as usize;
+    i += 2;
+    if i + n + 8 > data.len() {
+        return Err(Error::Yoo("cache info truncated".into()));
+    }
+    let crc = std::str::from_utf8(&data[i..i + n])
+        .map_err(|_| Error::Yoo("cache info CRC not UTF-8".into()))?
+        .to_string();
+    i += n;
+    let size = i64::from_le_bytes(data[i..i + 8].try_into().unwrap());
+    if size < 0 {
+        return Err(Error::Yoo("cache info negative size".into()));
+    }
+    Ok((crc, size as u64))
+}
+
+/// MD5 hex (lowercase), same alphabet as YooAsset FileHash / cache GUID.
+fn file_md5_hex(path: &Path, cancel: &AtomicBool) -> Result<String> {
+    use md5::{Digest, Md5};
+    let file = File::open(path).io_ctx(|| format!("opening {}", path.display()))?;
+    let mut reader = BufReader::with_capacity(256 * 1024, file);
+    let mut hasher = Md5::new();
+    let mut buf = [0u8; 256 * 1024];
+    loop {
+        if cancel.load(Ordering::Relaxed) {
+            return Err(Error::Cancelled);
+        }
+        let n = reader.read(&mut buf).io_ctx(|| format!("reading {}", path.display()))?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buf[..n]);
+    }
+    Ok(hex::encode(hasher.finalize()))
 }
 
 /// CRC32 as YooAsset `HashUtility.ToString`: lowercase hex of the little-endian CRC bytes.
@@ -610,6 +712,25 @@ mod tests {
         fs::write(&p, b"hello").unwrap();
         let cancel = AtomicBool::new(false);
         assert_eq!(file_crc32_hex(&p, &cancel).unwrap(), "86a61036");
+    }
+
+    #[test]
+    fn md5_of_hello() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("t");
+        fs::write(&p, b"hello").unwrap();
+        let cancel = AtomicBool::new(false);
+        assert_eq!(
+            file_md5_hex(&p, &cancel).unwrap(),
+            "5d41402abc4b2a76b9719d911017c592"
+        );
+    }
+
+    #[test]
+    fn accepts_either_crc_byte_order() {
+        assert!(crc_matches("86a61036", "86a61036"));
+        assert!(crc_matches("86a61036", "3610a686"));
+        assert!(!crc_matches("86a61036", "00000000"));
     }
 
     #[test]
