@@ -36,6 +36,9 @@ modules:
       - install -Dm644 data/${FLATPAK_ID}.desktop -t /app/share/applications/
       - install -Dm644 data/${FLATPAK_ID}.metainfo.xml -t /app/share/metainfo/
       - install -Dm644 data/${FLATPAK_ID}.svg -t /app/share/icons/hicolor/scalable/apps/
+      # Also embedded in the Rust binary via include_bytes!; installed for inspection/debugging.
+      - install -Dm644 data/fpx-login/fpx_login.exe -t /app/share/${FLATPAK_ID}/fpx-login/
+      - install -Dm644 data/fpx-login/config.json -t /app/share/${FLATPAK_ID}/fpx-login/
     sources:
       - type: dir
         path: ..

@@ -4,3 +4,9 @@
 /repo
 target-shots/
 *.flatpak
+.claude/settings.local.json
+
+tools/fpx-login/fpx-login-deck.zip
+tools/fpx-login/config.json
+tools/fpx-login/fpx_login.exe
+tools/fpx-login/fpx-login-deck.zip

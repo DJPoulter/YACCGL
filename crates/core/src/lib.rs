@@ -5,6 +5,7 @@ pub mod api;
 pub mod download;
 pub mod error;
 pub mod extract;
+pub mod fpx_login;
 pub mod http;
 pub mod install;
 pub mod settings;

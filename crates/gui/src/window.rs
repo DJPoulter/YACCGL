@@ -227,7 +227,7 @@ fn build_ui(application: &adw::Application) -> Ui {
     shortcut_row.add_suffix(&steam_button);
     let login_row = adw::ActionRow::builder()
         .title("Log in to Aniimo")
-        .subtitle("Opens the game here so you can type your email")
+        .subtitle("Opens FunPlus login here so you can type your email")
         .build();
     let login_button = gtk::Button::builder().label("Log In").valign(gtk::Align::Center).build();
     login_row.add_suffix(&login_button);
@@ -1082,27 +1082,41 @@ impl App {
         }
     }
 
-    /// Start the game the way Steam does, so the player can log in where typing works.
-    /// It uses the shortcut's prefix, so the login is kept for launches from Steam.
+    /// Open the FunPlus login dialog via the FPX host, using the shortcut's Proton
+    /// prefix so the session is kept for launches from Steam.
     async fn log_in(&self) {
-        let (exe, appid) = self.target();
+        let (game_exe, appid) = self.target();
+        let install_dir = self.state.borrow().settings.install_dir.clone();
         let (steam, tool) = {
             let st = self.state.borrow();
             let Some(steam) = st.steam.clone() else { return };
             (steam, st.settings.compat_tool.clone())
         };
-        let exe_name = exe.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-        if gio::spawn_blocking(move || process::game_running(&exe_name)).await.is_ok_and(|r| r.unwrap_or(false)) {
-            self.error("Aniimo is already running", "Close the game first, then press Log In again.");
+
+        let login_exe = match gio::spawn_blocking(move || yaccgl_core::fpx_login::ensure_installed(&install_dir)).await {
+            Ok(Ok(p)) => p,
+            Ok(Err(e)) => return self.error("Couldn't prepare login", &e.to_string()),
+            Err(_) => return self.error("Couldn't prepare login", "An unexpected error occurred."),
+        };
+
+        let game_name = game_exe.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        let login_name = login_exe.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        let already = gio::spawn_blocking(move || {
+            Ok::<_, yaccgl_core::Error>(process::game_running(&game_name)? || process::game_running(&login_name)?)
+        })
+        .await;
+        if already.is_ok_and(|r| r.unwrap_or(false)) {
+            self.error("Aniimo is already running", "Close the game (or the login window) first, then press Log In again.");
             return;
         }
-        let launch = match steam.game_launch(appid, &exe, &tool) {
+
+        let launch = match steam.game_launch(appid, &login_exe, &tool) {
             Ok(l) => l,
-            Err(e) => return self.error("Couldn't start Aniimo", &e.to_string()),
+            Err(e) => return self.error("Couldn't start login", &e.to_string()),
         };
 
         self.state.borrow_mut().task = Some(Task::Game);
-        self.ui.progress_label.set_label("Aniimo is running. Log in, then close the game to finish.");
+        self.ui.progress_label.set_label("Login window is open. Sign in — it may close on its own when you're done.");
         self.ui.progress_label.set_visible(true);
         self.refresh();
         let started = Instant::now();
@@ -1114,16 +1128,16 @@ impl App {
         self.refresh();
 
         match result {
-            Ok(Ok(_)) if started.elapsed() < Duration::from_secs(10) => self.error(
-                "Aniimo closed straight away",
-                "The game exited within a few seconds. Try starting it from Steam instead, and check that Proton 10 is installed.",
+            Ok(Ok(_)) if started.elapsed() < Duration::from_secs(5) => self.error(
+                "Login closed straight away",
+                "The login window exited within a few seconds. Check that Proton 10 is installed, then try again.",
             ),
             Ok(Ok(_)) => self.error(
                 "All set",
                 "If you logged in, Aniimo should remember it when you start it from Steam, in Game Mode too.",
             ),
-            Ok(Err(e)) => self.error("Couldn't start Aniimo", &e.to_string()),
-            Err(_) => self.error("Couldn't start Aniimo", "An unexpected error occurred."),
+            Ok(Err(e)) => self.error("Couldn't start login", &e.to_string()),
+            Err(_) => self.error("Couldn't start login", "An unexpected error occurred."),
         }
     }
 

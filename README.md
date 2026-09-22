@@ -40,14 +40,14 @@ next to the Steam shortcut to apply it.
 
 ### Logging in on the Steam Deck
 
-The game asks for your email in a separate window (FunPlus's login dialog). In Game Mode, Steam
-only sends keyboard input to the game's main window, so the on-screen keyboard can't type into
-it. What's built in so far:
+The game asks for your email in a FunPlus login dialog. In Game Mode, Steam only sends
+keyboard input to the game's main window, so the on-screen keyboard can't type into that
+dialog. What's built in:
 
-- **Log In button:** in Desktop Mode, press **Log In** next to the Steam shortcut. The game
-  opens with the same Proton setup Steam uses, so the login is saved where Steam's launches look
-  for it. Log in, close the game, and it should remember you when you start it from Steam, in
-  Game Mode too.
+- **Log In button:** in Desktop Mode, press **Log In** next to the Steam shortcut. It opens
+  FunPlus's login window (via `FPX.dll`) with the same Proton prefix Steam uses, so the login
+  is saved for Game Mode. Sign in — the window may close on its own when you're done; if not,
+  close it yourself. Then start Aniimo from Steam.
 - **Single window** (off by default, in Preferences): runs the game inside one fixed-size window
   using Wine's virtual desktop. It didn't fix the login window in Game Mode in testing, so it's
   opt-in only.

@@ -120,6 +120,9 @@ pub fn install(
         return Err(Error::Extract(format!("{} is missing after extraction", exe.display())));
     }
 
+    // Login host sits next to FPX.dll; keep it in sync after every extract.
+    let _ = crate::fpx_login::ensure_installed(dir);
+
     let state = InstallState {
         package: package.clone(),
         installed_at: SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs()),

@@ -1,0 +1,195 @@
+{
+    "funplusConfig":  {
+                          "versionConfig":  "http://47.100.233.173:10302/api/version/list?game_project=%1\u0026primitive_game_id=%2",
+                          "accountHtml":  "https://store-funplusid-stage.funplus.com",
+                          "roleInfoApiServer":  "http://store-account-test.funplus.com",
+                          "funplusApiServer":  "http://35.166.237.230:8989",
+                          "faqUrl":  "https://st.kingsgroupgames.com",
+                          "projectId":  "worldx_global",
+                          "actControlApiServer":  "https://worldx-ame.kingsgroupgames.com/do",
+                          "login_faqUrl":  "https://st.kingsgroupgames.com/pc/faq?seq=account\u0026l=%1",
+                          "app_id":  "worldx.global.prod",
+                          "app_secret":  "f00b4230-3a5b-4513-8e77-44e596189f22",
+                          "env":  "prod",
+                          "channel_id":  "Funplus-PC",
+                          "sub_channel_id":  "Funplus-PC",
+                          "package_id":  "Funplus-PC.Funplus-PC.Apfozx",
+                          "package_label":  "Funplus-PC.official",
+                          "sub_channel_code":  "Funplus-PC.official.00000000",
+                          "auth_baseurl":  "https://fp-idauth-stage.funplus.com.cn",
+                          "logoffurl":  "https://fp-privacy.funplus.com",
+                          "upload_img_baseurl":  "",
+                          "upload_img_secret":  "",
+                          "channel_platform":  "nativepc"
+                      },
+    "loginMethod":  {
+                        "phone":  false,
+                        "email":  true,
+                        "google":  true,
+                        "facebook":  true,
+                        "discord":  true,
+                        "vk":  true,
+                        "line":  true,
+                        "tiktok":  true,
+                        "guest":  false
+                    },
+    "switches":  {
+                     "minor_verification":  true,
+                     "scan_login":  true,
+                     "scan_login_force_bind":  true
+                 },
+    "notice":  {
+                   "notice_baseurl":  "https://announcement-web-stage.funplus.com",
+                   "notice_apisecret":  "uM61mQrQ1Nlch23UG4NGPp6UV3RpqsX1"
+               },
+    "privacy":  {
+                    "company_id":  "PAWPRINT",
+                    "privacy_baseurl":  "https://fp-privacy.funplus.com",
+                    "privacy_agreement_link":  "https://pawprintstudio.com/privacy-policy",
+                    "user_agreement_link":  "https://pawprintstudio.com/terms-of-use",
+                    "children_agreement_link":  "",
+                    "third_agreement_link":  "",
+                    "version":  "1"
+                },
+    "helpcenter":  {
+                       "helpcenter_baseurl":  "https://fpcs-web.aniimo.com",
+                       "helpcenter_apisecret":  "XXAdXyDdjrTULr0fs1R8",
+                       "helpcenter_appid":  "TBg21pbr20hpCGlE"
+                   },
+    "popups":  {
+                   "popups_baseurl":  "http://popups-api-stage.funplus.com",
+                   "popups_web_baseurl":  "http://general-web-stage.funplus.com.cn",
+                   "popups_apisecret":  "iaMQY18NnBfzkZieob4hXDAdoMqvk9iU"
+               },
+    "gamePay":  {
+                    "payHost":  "https://store.aniimo.com/aniimo/sdk",
+                    "storeUrl":  "https://worldx-store.funplus.com/aniimo/sdk/",
+                    "productsUrl":  "https://worldx-store-coin.kingsgroupgames.com/api/sdk/inappproducts",
+                    "payProject":  "worldx_global",
+                    "paySource":  "pc",
+                    "utm_campaign":  "Funplus-PC.Funplus-PC.Apfozx",
+                    "channel_1":  {
+                                      "channel":  "WxpayPc",
+                                      "channel_id":  "wxpay",
+                                      "sub_channel_id":  "NATIVE"
+                                  },
+                    "channel_2":  {
+                                      "channel":  "",
+                                      "channel_id":  "",
+                                      "sub_channel_id":  ""
+                                  },
+                    "pcpay_webview_backup_url":  "https://store-back.aniimo.com/aniimo/pc-checkout/",
+                    "pcpay_webview_url":  "https://store.aniimo.com/aniimo/pc-checkout/"
+                },
+    "funplusIap":  {
+                       "url":  "https://fp-payment-worldx.kingsgroupgames.com",
+                       "backup_url":  "https://fp-payment-worldx-backup.kingsgroupgames.com/",
+                       "apiKey":  "#HvL%$o0oNNoOZnk#o2qbqCeQB1iXeIR",
+                       "apiIV":  "#HvL%$o0oNNoOZnk",
+                       "app_id":  999002
+                   },
+    "gameConfig":  {
+                       "passportType":  "dw",
+                       "gameId":  "worldx.global.prod",
+                       "gameKey":  "8632781872155bc53b54729c4bdb368c",
+                       "pkgChannel":  "Funplus-PC.Funplus-PC.Apfozx",
+                       "passport":  "http://dw-qa-passport.kingsgroup.cn",
+                       "appName":  "worldx",
+                       "exeName":  "xworld.exe",
+                       "giftCode":  "PLAYKOAONPC"
+                   },
+    "biConfig":  {
+                     "url":  "https://fp-logagent-worldx.kingsgroupgames.com",
+                     "tag":  "funplus.global.prod.pc_core",
+                     "appId":  "worldx.global.prod",
+                     "secret":  "41596c5e3a001b89432aa24678039adb"
+                 },
+    "uploadConfig":  {
+                         "url":  "http://upload-s3.funplus.com/api/upload_s3",
+                         "appId":  "2b4c83de-7407-41ae-a36b-a55aa13a7b96",
+                         "secret":  "e03b0da71d31f4c9e55b6f547f782097"
+                     },
+    "socialHomePage":  {
+                           "facebook":  "https://discord.gg/4QtPfGUxVx",
+                           "instagram":  "https://discord.gg/4QtPfGUxVx",
+                           "twitter":  "https://discord.gg/4QtPfGUxVx",
+                           "discard":  "https://discord.gg/4QtPfGUxVx",
+                           "youtube":  "https://discord.gg/4QtPfGUxVx"
+                       },
+    "fpPassport":  {
+                       "url":  "https://fp-passport.funplus.com",
+                       "appId":  "worldx.global.prod",
+                       "appSecret":  "EJFkJwE41kpswIR4V1EY0R5x5ZVVogBw",
+                       "apiKey":  "YIUFEFYVFBpgx8RV",
+                       "apiIV":  "1234567890abcdef"
+                   },
+    "fpAccount":  {
+                      "url":  "https://worldx-global-fpx-account.kingsgroupgames.com",
+                      "api_iv":  "1234567890abcdef",
+                      "api_key":  "OkSHb2iUkYKrV9h6",
+                      "api_secret":  "f00b4230-3a5b-4513-8e77-44e596189f22",
+                      "api_version":  "v1"
+                  },
+    "tracking":  {
+                     "domain":  "https://fp-logagent-worldx.kingsgroupgames.com/log",
+                     "logagent_app_id":  "worldx.global.prod",
+                     "logagent_app_key":  "41596c5e3a001b89432aa24678039adb"
+                 },
+    "crash_sdk":  {
+                      "app_key":  "12b6eb57-c0b1-41cb-a627-2173521db4254e54f6461b",
+                      "app_id":  "4e54f6461b"
+                  },
+    "plugins":  {
+                    "enabled":  true,
+                    "searchPaths":  [
+                                        "./addins",
+                                        "."
+                                    ],
+                    "providers":  [
+                                      {
+                                          "id":  "PluginCore",
+                                          "name":  "PluginCore",
+                                          "enabled":  true,
+                                          "library":  "FPXPluginCore.dll",
+                                          "capabilities":  [
+                                                               "bi"
+                                                           ],
+                                          "config":  {
+                                                         "appid":  "pc260730",
+                                                         "signKey":  "5thqi2NArvRb4rRRkDMgydw8yLyDiNfF",
+                                                         "appsflyer":  {
+                                                                           "devkey":  "sSNE3VvEwvGArsGKp49HBj",
+                                                                           "platform":  "nativepc"
+                                                                       }
+                                                     }
+                                      }
+                                  ]
+                },
+    "socialauth":  {
+                       "userinfoServerurl":  "https://worldx-ame.kingsgroupgames.com/do?p0=pc\u0026p1=8\u0026p2=1082\u0026p3=api\u0026",
+                       "redirect_uri":  "https://store-funplusid.funplus.com",
+                       "platforms":  {
+                                         "google":  {
+                                                        "authurl":  "https://accounts.google.com/o/oauth2/v2/auth?response_type=code\u0026scope=email profile\u0026client_id=91480810406-5s105t7e9ll5an4fqhpeb0k066fh1ipr.apps.googleusercontent.com\u0026"
+                                                    },
+                                         "facebook":  {
+                                                          "authurl":  "https://www.facebook.com/v15.0/dialog/oauth?client_id=1687343282397697\u0026response_type=token\u0026scope=email\u0026"
+                                                      },
+                                         "vk":  {
+                                                    "authurl":  "https://id.vk.com/authorize?client_id=54714199\u0026display=page\u0026response_type=code\u0026scope=wall%2Coffline\u0026v=5.24\u0026"
+                                                },
+                                         "line":  {
+                                                      "authurl":  "https://access.line.me/oauth2/v2.1/authorize?response_type=code\u0026client_id=2010918210\u0026scope=profile%20openid\u0026"
+                                                  },
+                                         "tiktok":  {
+                                                        "authurl":  "https://www.tiktok.com/v2/auth/authorize/?client_key=awy1qz9k5t6t550k\u0026response_type=code\u0026scope=user.info.basic\u0026"
+                                                    },
+                                         "discord":  {
+                                                         "authurl":  "https://discord.com/oauth2/authorize?client_id=1526112706992672831\u0026response_type=code\u0026scope=openid%20sdk.social_layer%20identify\u0026"
+                                                     }
+                                     }
+                   },
+    "af_config":  {
+                      "bundle_id":  "com.funplus.worldx-pc"
+                  }
+}

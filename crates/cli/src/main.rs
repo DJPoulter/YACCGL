@@ -36,8 +36,8 @@ enum Cmd {
     /// Manage the Steam shortcut.
     #[command(subcommand)]
     Steam(SteamCmd),
-    /// Start the game the way Steam does and wait for it to close, e.g. to log in from
-    /// Desktop Mode. Uses the shortcut's Proton prefix, so the login carries over.
+    /// Open the FunPlus login dialog (FPX host) using the shortcut's Proton prefix,
+    /// so the login carries over.
     Launch,
 }
 
@@ -293,23 +293,25 @@ fn steam_remove(settings: &Settings, user: Option<u32>, restart: bool) -> Result
 }
 
 fn launch(settings: &Settings) -> Result<()> {
-    let exe = exe_path(settings);
-    if !exe.is_file() {
-        bail!("{} not found. Install the game first.", exe.display());
+    let game = exe_path(settings);
+    if !game.is_file() {
+        bail!("{} not found. Install the game first.", game.display());
     }
-    let appid = steam::appid_for(&exe, GAME_NAME);
+    let login = yaccgl_core::fpx_login::ensure_installed(&settings.install_dir)?;
+    let appid = steam::appid_for(&game, GAME_NAME);
     let (steam, user) = pick_steam(settings.steam_user)?;
     if !steam.shortcut_exists(&user, appid) {
         bail!("Add the game to Steam first (`yaccgl steam add`), so it uses the same Proton prefix.");
     }
-    let exe_name = exe.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-    if process::game_running(&exe_name)? {
-        bail!("Aniimo is already running.");
+    let game_name = game.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let login_name = login.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    if process::game_running(&game_name)? || process::game_running(&login_name)? {
+        bail!("Aniimo (or the login window) is already running.");
     }
-    let launch = steam.game_launch(appid, &exe, &settings.compat_tool)?;
-    println!("Starting Aniimo. Log in, then close the game.");
+    let launch = steam.game_launch(appid, &login, &settings.compat_tool)?;
+    println!("Opening FunPlus login. Sign in — it may close on its own when you're done.");
     let status = process::run_game(&launch)?;
-    println!("Aniimo closed ({status}).");
+    println!("Login closed ({status}).");
     // The first launch creates the prefix; finish any prefix setup that was waiting for it.
     if settings.single_window_size().is_some() && steam.single_window(appid).is_none() {
         steam.set_single_window(appid, settings.single_window_size(), Some(&settings.compat_tool))?;

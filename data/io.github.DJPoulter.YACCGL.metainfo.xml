@@ -36,6 +36,11 @@
     <display_length compare="ge">360</display_length>
   </requires>
   <releases>
+    <release version="0.1.7" date="2026-09-22">
+      <description>
+        <p>Log In opens FunPlus's login dialog directly (via FPX.dll) instead of the full game, still using the Steam Proton prefix so the session carries over to Game Mode.</p>
+      </description>
+    </release>
     <release version="0.1.6" date="2026-09-22">
       <description>
         <p>Single-window mode is off by default again, including for installs where 0.1.5 turned it on.</p>
