@@ -36,6 +36,11 @@
     <display_length compare="ge">360</display_length>
   </requires>
   <releases>
+    <release version="0.1.12" date="2026-09-22">
+      <description>
+        <p>Verify finds the YooAsset cache under Proton's LocalLow path as well as the install folder, and explains clearly when no world data has been downloaded yet.</p>
+      </description>
+    </release>
     <release version="0.1.11" date="2026-09-22">
       <description>
         <p>Check for updates no longer uses the GitHub REST API (which was hitting the unauthenticated rate limit and returning HTTP 403).</p>

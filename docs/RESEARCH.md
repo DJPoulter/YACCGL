@@ -97,6 +97,11 @@ Aniimo_Data/Sandbox/CacheFiles/DefaultPackage/BundleFiles/{FileHash[0:2]}/{FileH
 Aniimo_Data/Sandbox/CacheFiles/DefaultPackage/BundleFiles/{FileHash[0:2]}/{FileHash}/__info
 ```
 
+Under Proton the same tree often lands in the Wine prefix instead
+(`…/compatdata/<appid>/pfx/drive_c/users/<user>/AppData/LocalLow/Aniimo/Aniimo/Sandbox/…`).
+Verify picks the fullest `BundleFiles` root it can see (install Sandbox, LocalLow, or a discovered
+`BundleFiles` under `Aniimo_Data`).
+
 Authoritative list: `PackageManifest_DefaultPackage_{ver}.bytes` under
 `Aniimo_Data/StreamingAssets/cvs/res/uab/win/DefaultPackage/` (or a newer copy in
 `Aniimo_Data/Sandbox/ManifestFiles/`). Header still says YooAsset **1.4.17** (`0x594F4F`), but the

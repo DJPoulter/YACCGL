@@ -12,7 +12,7 @@ use yaccgl_core::install::{self, Progress, Status};
 use yaccgl_core::settings::Settings;
 use yaccgl_core::space::{self, human};
 use yaccgl_core::steam::{self, ShortcutSpec, Steam, User, process};
-use yaccgl_core::yoo::{self, BundleStatus};
+use yaccgl_core::yoo;
 use yaccgl_core::{Error, GAME_NAME, http};
 
 use crate::APP_ID;
@@ -924,26 +924,13 @@ impl App {
             a.refresh();
             match result {
                 Ok(Ok(report)) => {
-                    let bad: Vec<_> = report.bad().collect();
-                    if bad.is_empty() {
-                        a.toast(&format!("All {} asset bundles look good", report.checked.len()));
-                    } else {
-                        let missing = bad.iter().filter(|b| b.status == BundleStatus::Missing).count();
-                        let corrupt = bad.len() - missing;
-                        let mut msg = format!(
-                            "{} of {} bundles need attention",
-                            bad.len(),
-                            report.checked.len()
-                        );
-                        if corrupt > 0 {
-                            msg.push_str(&format!(" ({corrupt} corrupt removed)"));
-                        }
-                        if missing > 0 {
-                            msg.push_str(&format!(" ({missing} not downloaded yet)"));
-                        }
-                        msg.push_str(". Launch the game to re-download.");
-                        a.toast(&msg);
-                    }
+                    // Longer timeout so the path / "launch once" guidance is readable.
+                    a.ui.toasts.add_toast(
+                        adw::Toast::builder()
+                            .title(report.summary())
+                            .timeout(8)
+                            .build(),
+                    );
                 }
                 Ok(Err(Error::Cancelled)) => a.toast("Verify cancelled"),
                 Ok(Err(e)) => a.error("Verify failed", &e.to_string()),

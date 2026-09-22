@@ -185,26 +185,30 @@ fn verify(settings: &Settings, check_only: bool) -> Result<()> {
     })?;
     bar.finish();
 
+    println!(
+        "Package {} {} · {}",
+        report.package_name,
+        report.package_version,
+        report.summary()
+    );
+    if let Some(root) = &report.cache_root {
+        println!(
+            "Cache root: {} ({} entries on disk)",
+            root.display(),
+            report.cache_entries_on_disk
+        );
+    } else {
+        println!("Cache root: (not found)");
+    }
+
     let bad: Vec<_> = report.bad().collect();
     if bad.is_empty() {
-        println!(
-            "All {} bundles OK (package {} {}).",
-            report.checked.len(),
-            report.package_name,
-            report.package_version
-        );
         return Ok(());
     }
 
     let missing = bad.iter().filter(|b| b.status == BundleStatus::Missing).count();
     let corrupt = bad.len() - missing;
-    println!(
-        "{} of {} bundles need attention ({} missing, {} corrupt):",
-        bad.len(),
-        report.checked.len(),
-        missing,
-        corrupt
-    );
+    println!("{} missing, {} corrupt:", missing, corrupt);
     for b in bad.iter().take(20) {
         let detail = match &b.status {
             BundleStatus::Missing => "missing".into(),
