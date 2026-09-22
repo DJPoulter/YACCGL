@@ -1207,7 +1207,7 @@ impl App {
                 steam,
                 "Adding Aniimo to Steam…",
                 move |s| s.register(&http::agent(), &user, &spec),
-                move |s| s.shortcut_exists(&check_user, appid),
+                move |s| s.shortcut_exists(&check_user, appid) && s.steam_input_disabled(&check_user, appid),
             )
             .await;
         match result {

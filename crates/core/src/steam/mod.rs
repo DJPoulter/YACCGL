@@ -148,6 +148,10 @@ impl Steam {
         self.userdata(user).join("config/grid")
     }
 
+    pub fn localconfig_vdf(&self, user: &User) -> PathBuf {
+        self.userdata(user).join("config/localconfig.vdf")
+    }
+
     /// Users that have a `userdata` directory, most recently logged in first.
     pub fn users(&self) -> Vec<User> {
         let mut logins = std::collections::HashMap::new();
@@ -307,6 +311,8 @@ impl Steam {
         if let Some(tool) = &spec.compat_tool {
             self.set_compat_tool(appid, Some(tool))?;
         }
+        // Aniimo needs the raw gamepad; Steam Input intercepts it otherwise.
+        self.set_steam_input(user, appid, false)?;
         self.map_game_drive(appid, &spec.start_dir)?;
         let single_window_pending = self.set_single_window(appid, spec.single_window, spec.compat_tool.as_deref())?
             == PrefixChange::Pending;
@@ -616,6 +622,45 @@ impl Steam {
         }
         write_backed_up(&path, text_vdf::serialize(&root).as_bytes())
     }
+
+    /// Enable or disable Steam Input for a shortcut in `localconfig.vdf`.
+    ///
+    /// `enabled == false` is "Disable Steam Input" in the Steam UI (`UseSteamControllerConfig` `0`),
+    /// which is what Aniimo needs so the raw gamepad reaches the game.
+    pub fn set_steam_input(&self, user: &User, appid: u32, enabled: bool) -> Result<()> {
+        let path = self.localconfig_vdf(user);
+        let src = match fs::read_to_string(&path) {
+            Ok(s) => s,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+            Err(e) => return Err(e).io_ctx(|| format!("reading {}", path.display())),
+        };
+        let mut root = text_vdf::parse(&src).map_err(|message| Error::Vdf { file: path.display().to_string(), message })?;
+        let entry = root.obj_mut("UserLocalConfigStore").obj_mut("apps").obj_mut(&signed_appid_key(appid));
+        // Values match what Steam writes when you flip the Controller override in Properties.
+        entry.set_str("UseSteamControllerConfig", if enabled { "1" } else { "0" });
+        entry.set_str("SteamControllerRumble", "-1");
+        entry.set_str("SteamControllerRumbleIntensity", "320");
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).io_ctx(|| format!("creating {}", parent.display()))?;
+        }
+        write_backed_up(&path, text_vdf::serialize(&root).as_bytes())
+    }
+
+    /// Whether Steam Input is forced off for `appid` (`UseSteamControllerConfig` `0`).
+    pub fn steam_input_disabled(&self, user: &User, appid: u32) -> bool {
+        let Ok(src) = fs::read_to_string(self.localconfig_vdf(user)) else { return false };
+        let Ok(root) = text_vdf::parse(&src) else { return false };
+        root.get_obj("UserLocalConfigStore")
+            .and_then(|o| o.get_obj("apps"))
+            .and_then(|o| o.get_obj(&signed_appid_key(appid)))
+            .and_then(|o| o.get_str("UseSteamControllerConfig"))
+            == Some("0")
+    }
+}
+
+/// `localconfig.vdf` keys non-Steam shortcuts under the signed 32-bit form of the app id.
+fn signed_appid_key(appid: u32) -> String {
+    (appid as i32).to_string()
 }
 
 /// Steam's id for a non-Steam shortcut: CRC32 of the quoted exe followed by the name,
@@ -808,11 +853,38 @@ mod tests {
 
         assert!(steam.shortcut_exists(&user, first.appid));
         assert_eq!(steam.compat_tool(first.appid).as_deref(), Some("proton_10"));
+        assert!(steam.steam_input_disabled(&user, first.appid));
+        let local = fs::read_to_string(steam.localconfig_vdf(&user)).unwrap();
+        assert!(local.contains(&format!("\"{}\"", first.appid as i32)));
+        assert!(local.contains("\"UseSteamControllerConfig\"\t\t\"0\""));
         // Existing lowercase "valve" key was reused rather than duplicated.
         let cfg = fs::read_to_string(steam.config_vdf()).unwrap();
         assert!(!cfg.contains("\"Valve\""));
         assert!(cfg.contains("AutoUpdateWindowEnabled"));
         assert!(steam.config_vdf().with_extension("vdf.yaccgl-bak").exists());
+    }
+
+    #[test]
+    fn set_steam_input_uses_signed_appid_and_preserves_other_apps() {
+        let home = tempfile::tempdir().unwrap();
+        let steam = fake_steam(home.path());
+        let user = steam.users().remove(0);
+        fs::write(
+            steam.localconfig_vdf(&user),
+            "\"UserLocalConfigStore\"\n{\n\t\"apps\"\n\t{\n\t\t\"570\"\n\t\t{\n\t\t\t\"LastPlayed\"\t\t\"1\"\n\t\t}\n\t}\n\t\"streaming_v2\"\n\t{\n\t\t\"EnableStreaming\"\t\t\"0\"\n\t}\n}\n",
+        )
+        .unwrap();
+
+        steam.set_steam_input(&user, 3_039_192_195, false).unwrap();
+        assert!(steam.steam_input_disabled(&user, 3_039_192_195));
+        let src = fs::read_to_string(steam.localconfig_vdf(&user)).unwrap();
+        assert!(src.contains("\"-1255775101\""));
+        assert!(src.contains("\"570\""));
+        assert!(src.contains("\"LastPlayed\""));
+        assert!(src.contains("\"EnableStreaming\""));
+
+        steam.set_steam_input(&user, 3_039_192_195, true).unwrap();
+        assert!(!steam.steam_input_disabled(&user, 3_039_192_195));
     }
 
     #[test]

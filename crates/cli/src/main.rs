@@ -257,7 +257,7 @@ fn steam_add(settings: &Settings, restart: bool) -> Result<()> {
     let applied = steam.with_closed(
         restart,
         || steam.register(&http::agent(), &user, &spec),
-        || steam.shortcut_exists(&user, appid),
+        || steam.shortcut_exists(&user, appid) && steam.steam_input_disabled(&user, appid),
     )?;
     check_restart(&applied)?;
     let reg = applied.value;

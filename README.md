@@ -65,8 +65,9 @@ The download is about 340 MB. On first launch the game downloads the rest of its
 
 ### Tips
 
-- If your controller isn't detected in game, open the game's controller settings in Steam and
-  turn off Steam Input for it.
+- Add to Steam disables Steam Input for Aniimo (what the game needs for the controller)
+  and forces Proton 10. If a controller still isn't detected, check Properties → Controller
+  in Steam and try Enable Steam Input with the Gamepad template instead.
 - Start with the Low graphics preset on the Deck.
 - Only Proton 10 works for now. Newer Proton versions crash the game.
 

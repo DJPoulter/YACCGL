@@ -16,7 +16,7 @@
     <ul>
       <li>Downloads the game from its official servers and keeps it up to date</li>
       <li>Lets you choose where to install it, including SD cards</li>
-      <li>Adds it to Steam as a non-Steam game with the right Proton version already set</li>
+      <li>Adds it to Steam as a non-Steam game with Proton 10 and Steam Input disabled</li>
       <li>Adds the game's official library artwork</li>
     </ul>
     <p>
@@ -36,6 +36,11 @@
     <display_length compare="ge">360</display_length>
   </requires>
   <releases>
+    <release version="0.1.9" date="2026-09-22">
+      <description>
+        <p>Add to Steam turns off Steam Input for Aniimo automatically, so the controller reaches the game without a manual Properties change.</p>
+      </description>
+    </release>
     <release version="0.1.8" date="2026-09-22">
       <description>
         <p>Preferences → Check for updates installs a newer Flatpak in place from GitHub Releases (no uninstall).</p>
