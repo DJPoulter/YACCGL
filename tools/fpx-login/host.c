@@ -139,11 +139,21 @@ int WINAPI WinMain(HINSTANCE hi, HINSTANCE hp, LPSTR cmd, int show) {
     wc.hbrBackground = (HBRUSH)GetStockObject(BLACK_BRUSH);
     RegisterClassA(&wc);
 
+    // FunPlus's login card is ~484×459; keep the host tight so there's no black border.
+    const int client_w = 484, client_h = 459;
+    DWORD style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_VISIBLE;
+    RECT wr = {0, 0, client_w, client_h};
+    AdjustWindowRect(&wr, style, FALSE);
+    int ww = wr.right - wr.left, wh = wr.bottom - wr.top;
+    int wx = (GetSystemMetrics(SM_CXSCREEN) - ww) / 2;
+    int wy = (GetSystemMetrics(SM_CYSCREEN) - wh) / 2;
+    if (wx < 0) wx = 0;
+    if (wy < 0) wy = 0;
     g_host = CreateWindowExA(0, "AniimoFpxHost", "Aniimo Login",
-        WS_OVERLAPPEDWINDOW | WS_VISIBLE, 80, 60, 980, 760, NULL, NULL, hi, NULL);
+        style, wx, wy, ww, wh, NULL, NULL, hi, NULL);
     ShowWindow(g_host, SW_SHOW);
     UpdateWindow(g_host);
-    LOG("host hwnd=%p\n", (void*)g_host);
+    LOG("host hwnd=%p size=%dx%d (client %dx%d)\n", (void*)g_host, ww, wh, client_w, client_h);
 
     char* cfg = load_config();
     if (!cfg) {

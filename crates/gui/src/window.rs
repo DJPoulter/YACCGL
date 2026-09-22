@@ -97,6 +97,7 @@ struct Ui {
     remove_button: gtk::Button,
     login_row: adw::ActionRow,
     login_button: gtk::Button,
+    login_info_button: gtk::Button,
     prefs: adw::PreferencesDialog,
 }
 
@@ -229,7 +230,14 @@ fn build_ui(application: &adw::Application) -> Ui {
         .title("Log in to Aniimo")
         .subtitle("Opens FunPlus login here so you can type your email")
         .build();
+    let login_info_button = gtk::Button::builder()
+        .icon_name("dialog-information-symbolic")
+        .valign(gtk::Align::Center)
+        .tooltip_text("About Log In")
+        .css_classes(["flat"])
+        .build();
     let login_button = gtk::Button::builder().label("Log In").valign(gtk::Align::Center).build();
+    login_row.add_suffix(&login_info_button);
     login_row.add_suffix(&login_button);
     let steam_group = adw::PreferencesGroup::builder().title("Steam").build();
     steam_group.add(&shortcut_row);
@@ -347,6 +355,7 @@ fn build_ui(application: &adw::Application) -> Ui {
         remove_button,
         login_row,
         login_button,
+        login_info_button,
         prefs,
     }
 }
@@ -382,6 +391,16 @@ impl App {
         ui.login_button.connect_clicked(move |_| {
             let a = a.clone();
             glib::spawn_future_local(async move { a.log_in().await });
+        });
+        let a = self.clone();
+        ui.login_info_button.connect_clicked(move |_| {
+            a.error(
+                "About Log In",
+                "Nothing is sent to YACCGL or any of our servers.\n\n\
+                 This opens Aniimo's official FunPlus login (FPX.dll from your game files) under Wine/Proton.\n\n\
+                 Use it in Desktop Mode so you can type your email. The session is saved in Steam's Proton \
+                 prefix, so Game Mode launches stay logged in.",
+            );
         });
         let a = self.clone();
         ui.remove_button.connect_clicked(move |_| {
