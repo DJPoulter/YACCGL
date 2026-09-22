@@ -11,6 +11,7 @@ use yaccgl_core::install::{self, Progress, Status};
 use yaccgl_core::settings::Settings;
 use yaccgl_core::space::human;
 use yaccgl_core::steam::{self, ShortcutSpec, Steam, process};
+use yaccgl_core::yoo::{self, BundleStatus};
 use yaccgl_core::{GAME_NAME, api, http};
 
 #[derive(Parser)]
@@ -32,6 +33,12 @@ enum Cmd {
         /// Re-download and re-extract even if up to date.
         #[arg(long)]
         repair: bool,
+    },
+    /// Check the YooAsset cache (floors / world data) and delete corrupt entries.
+    Verify {
+        /// Report problems without deleting anything.
+        #[arg(long)]
+        check_only: bool,
     },
     /// Manage the Steam shortcut.
     #[command(subcommand)]
@@ -80,6 +87,7 @@ fn main() -> Result<()> {
     match cli.cmd {
         Cmd::Status => status(&settings),
         Cmd::Install { repair } => install(&mut settings, repair),
+        Cmd::Verify { check_only } => verify(&settings, check_only),
         Cmd::Steam(SteamCmd::Users) => users(),
         Cmd::Steam(SteamCmd::Add {
             user,
@@ -157,6 +165,72 @@ fn install(settings: &mut Settings, repair: bool) -> Result<()> {
     bar.finish();
     settings.save()?;
     println!("Done. Run `yaccgl steam add` to add it to Steam.");
+    Ok(())
+}
+
+fn verify(settings: &Settings, check_only: bool) -> Result<()> {
+    let dir = &settings.install_dir;
+    if install::read_state(dir).is_none() {
+        bail!("Aniimo is not installed in {}", dir.display());
+    }
+    println!(
+        "{} YooAsset cache in {}…",
+        if check_only { "Checking" } else { "Verifying" },
+        dir.display()
+    );
+    let cancel = AtomicBool::new(false);
+    let mut bar = Bar::default();
+    let report = yoo::verify(dir, !check_only, &cancel, &mut |done, total| {
+        bar.update(Progress::Checking { done, total });
+    })?;
+    bar.finish();
+
+    let bad: Vec<_> = report.bad().collect();
+    if bad.is_empty() {
+        println!(
+            "All {} bundles OK (package {} {}).",
+            report.checked.len(),
+            report.package_name,
+            report.package_version
+        );
+        return Ok(());
+    }
+
+    let missing = bad.iter().filter(|b| b.status == BundleStatus::Missing).count();
+    let corrupt = bad.len() - missing;
+    println!(
+        "{} of {} bundles need attention ({} missing, {} corrupt):",
+        bad.len(),
+        report.checked.len(),
+        missing,
+        corrupt
+    );
+    for b in bad.iter().take(20) {
+        let detail = match &b.status {
+            BundleStatus::Missing => "missing".into(),
+            BundleStatus::SizeMismatch { actual } => format!("size {actual}, expected {}", b.bundle.file_size),
+            BundleStatus::CrcMismatch { actual } => format!("crc {actual}, expected {}", b.bundle.file_crc),
+            BundleStatus::Unreadable => "unreadable".into(),
+            BundleStatus::Ok => continue,
+        };
+        println!("  {} ({detail})", b.bundle.name);
+    }
+    if bad.len() > 20 {
+        println!("  …and {} more", bad.len() - 20);
+    }
+    if check_only {
+        if corrupt > 0 {
+            bail!("re-run without --check-only to delete corrupt cache entries");
+        }
+        println!("Missing bundles are downloaded by the game on next launch.");
+        return Ok(());
+    }
+    if corrupt > 0 {
+        println!("Deleted {corrupt} corrupt cache folder(s). Launch the game to re-download.");
+    }
+    if missing > 0 {
+        println!("{missing} bundle(s) were never downloaded; the game will fetch them on launch.");
+    }
     Ok(())
 }
 
@@ -366,6 +440,7 @@ impl Bar {
             Progress::Downloading { done, total } => ("Downloading", done, total),
             Progress::Verifying { done, total } => ("Verifying", done, Some(total)),
             Progress::Extracting { done, total } => ("Extracting", done, Some(total)),
+            Progress::Checking { done, total } => ("Checking", done, Some(total)),
         };
         let now = Instant::now();
         if stage != self.stage {

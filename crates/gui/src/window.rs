@@ -12,6 +12,7 @@ use yaccgl_core::install::{self, Progress, Status};
 use yaccgl_core::settings::Settings;
 use yaccgl_core::space::{self, human};
 use yaccgl_core::steam::{self, ShortcutSpec, Steam, User, process};
+use yaccgl_core::yoo::{self, BundleStatus};
 use yaccgl_core::{Error, GAME_NAME, http};
 
 use crate::APP_ID;
@@ -31,6 +32,8 @@ enum Latest {
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Task {
     Install,
+    /// Checking / repairing YooAsset cache files.
+    Verify,
     Steam,
     /// The game is running from the Log In button.
     Game,
@@ -284,10 +287,10 @@ fn build_ui(application: &adw::Application) -> Ui {
     shortcut_prefs.add(&launch_row);
 
     let repair_row = adw::ActionRow::builder()
-        .title("Repair game files")
-        .subtitle("Download and unpack the game again")
+        .title("Verify game data")
+        .subtitle("Check downloaded floors and world assets; remove corrupt files so the game can re-download them")
         .build();
-    let repair = gtk::Button::builder().label("Repair").valign(gtk::Align::Center).build();
+    let repair = gtk::Button::builder().label("Verify").valign(gtk::Align::Center).build();
     repair_row.add_suffix(&repair);
     let files_prefs = adw::PreferencesGroup::builder().title("Game files").build();
     files_prefs.add(&repair_row);
@@ -373,7 +376,7 @@ impl App {
         let a = self.clone();
         ui.repair.connect_clicked(move |_| {
             a.ui.prefs.close();
-            a.start_install(true);
+            a.start_verify();
         });
         let a = self.clone();
         ui.update_button.connect_clicked(move |_| {
@@ -694,7 +697,8 @@ impl App {
         let title = match (st.task, action) {
             (Some(Task::Install), Action::Update) => "Updating…".to_string(),
             (Some(Task::Install), Action::Install) => "Installing…".to_string(),
-            (Some(Task::Install), _) => "Repairing…".to_string(),
+            (Some(Task::Install), _) => "Installing…".to_string(),
+            (Some(Task::Verify), _) => "Verifying…".to_string(),
             _ => title,
         };
         ui.status_title.set_label(&title);
@@ -746,11 +750,11 @@ impl App {
         let has_steam = st.steam.is_some() && user.is_some();
         ui.primary.set_sensitive(!busy && action != Action::None);
         // Nothing to do (up to date and in Steam, or still checking): no button.
-        ui.primary.set_visible(st.task != Some(Task::Install) && action != Action::None);
-        ui.cancel.set_visible(st.task == Some(Task::Install));
+        ui.primary.set_visible(!matches!(st.task, Some(Task::Install | Task::Verify)) && action != Action::None);
+        ui.cancel.set_visible(matches!(st.task, Some(Task::Install | Task::Verify)));
         ui.refresh.set_sensitive(!busy);
         ui.dir_button.set_sensitive(!busy);
-        ui.repair.set_sensitive(!busy && installed.is_some() && matches!(st.latest, Latest::Known(_)));
+        ui.repair.set_sensitive(!busy && installed.is_some());
         ui.steam_button.set_sensitive(!busy && has_steam && exe.is_file());
         ui.remove_button.set_visible(shortcut);
         ui.remove_button.set_sensitive(!busy);
@@ -877,11 +881,84 @@ impl App {
         });
     }
 
+    fn start_verify(&self) {
+        let (dir, cancel) = {
+            let mut st = self.state.borrow_mut();
+            if st.task.is_some() || install::read_state(&st.settings.install_dir).is_none() {
+                return;
+            }
+            st.task = Some(Task::Verify);
+            st.cancel = Arc::new(AtomicBool::new(false));
+            st.rate = None;
+            (st.settings.install_dir.clone(), st.cancel.clone())
+        };
+        self.ui.progress.set_visible(true);
+        self.ui.progress_label.set_visible(true);
+        self.ui.progress.set_fraction(0.0);
+        self.ui.progress_label.set_label("Checking files…");
+        self.refresh();
+
+        let (tx, rx) = async_channel::unbounded::<Progress>();
+        let a = self.clone();
+        glib::spawn_future_local(async move {
+            while let Ok(p) = rx.recv().await {
+                a.show_progress(p);
+            }
+        });
+
+        let a = self.clone();
+        glib::spawn_future_local(async move {
+            let result = gio::spawn_blocking(move || {
+                let mut last = Instant::now() - Duration::from_secs(1);
+                yoo::verify(&dir, true, &cancel, &mut |done, total| {
+                    if last.elapsed() >= Duration::from_millis(100) {
+                        last = Instant::now();
+                        let _ = tx.send_blocking(Progress::Checking { done, total });
+                    }
+                })
+            })
+            .await;
+            drop(rx);
+            a.state.borrow_mut().task = None;
+            a.ui.progress.set_visible(false);
+            a.ui.progress_label.set_visible(false);
+            a.refresh();
+            match result {
+                Ok(Ok(report)) => {
+                    let bad: Vec<_> = report.bad().collect();
+                    if bad.is_empty() {
+                        a.toast(&format!("All {} asset bundles look good", report.checked.len()));
+                    } else {
+                        let missing = bad.iter().filter(|b| b.status == BundleStatus::Missing).count();
+                        let corrupt = bad.len() - missing;
+                        let mut msg = format!(
+                            "{} of {} bundles need attention",
+                            bad.len(),
+                            report.checked.len()
+                        );
+                        if corrupt > 0 {
+                            msg.push_str(&format!(" ({corrupt} corrupt removed)"));
+                        }
+                        if missing > 0 {
+                            msg.push_str(&format!(" ({missing} not downloaded yet)"));
+                        }
+                        msg.push_str(". Launch the game to re-download.");
+                        a.toast(&msg);
+                    }
+                }
+                Ok(Err(Error::Cancelled)) => a.toast("Verify cancelled"),
+                Ok(Err(e)) => a.error("Verify failed", &e.to_string()),
+                Err(_) => a.error("Verify failed", "The verifier crashed unexpectedly."),
+            }
+        });
+    }
+
     fn show_progress(&self, p: Progress) {
         let (stage, done, total) = match p {
             Progress::Downloading { done, total } => ("Downloading", done, total),
             Progress::Verifying { done, total } => ("Verifying", done, Some(total)),
             Progress::Extracting { done, total } => ("Unpacking", done, Some(total)),
+            Progress::Checking { done, total } => ("Checking", done, Some(total)),
         };
         let now = Instant::now();
         let mut st = self.state.borrow_mut();

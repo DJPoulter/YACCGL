@@ -33,6 +33,9 @@ pub enum Error {
     #[error("failed to extract game files: {0}")]
     Extract(String),
 
+    #[error("YooAsset: {0}")]
+    Yoo(String),
+
     #[error("{0}")]
     Steam(String),
 

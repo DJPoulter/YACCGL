@@ -49,12 +49,74 @@ Snapshot 2026-09-21: game id 2402, version 1.0.0.3, md5 `76b8cdf4b45418ea6ef3c8d
 `.../worldx_global%7Cprimitive/prod/package_new/76b8cdf4b45418ea6ef3c8d6404e656e.7z`, 340,386,629 bytes.
 
 ## Game package contents
-- 7z (LZMA2 + BCJ, non-solid, 120 files, ~938 MB unpacked). Unity IL2CPP client at the archive root:
+- 7z (LZMA2 + BCJ, non-solid, ~120 files, ~938 MB unpacked). Unity IL2CPP client at the archive root:
   `Aniimo.exe`, `GameAssembly.dll`, `UnityPlayer.dll`, `repair.exe`, `NEP2.dll` (NetEase anti-cheat),
   DLSS dlls, `D3D12/`, `Aniimo_Data/`.
+- Also at archive root: `md5list.txt` + `verlist.txt` (see Quick Repair below).
 - Assets use YooAsset `DefaultPackage` (manifests included, `BuildinFileManifest.txt` empty), so the remaining
   ~40 GB is **downloaded by the game itself at first launch** (still to be confirmed on a real run).
 - Install = download .7z → verify md5 → `7z x` into install dir. Nothing from the Qt launcher is needed.
+
+## Quick Repair / file verify (2026-09-22)
+
+Official launcher: Settings → **Quick Repair** (`pc_repair` analytics). Implementation:
+
+| Piece | Role |
+|-------|------|
+| `UpdateDll.dll` | `FixManager` / `FixTool`: `Update_StartFix`, `Update_SetHashFileFixOnlyMode`, `verifyFiles` |
+| `GameUpdater.dll` | `ProsePieceCheck` (per-file re-download), `BigFileUpdater`, `CalculateFileMd5` |
+| Working files | under `fix_temp/`: `HashFile.txt`, `fileList.txt`, `chunkList.txt`, `localFileList.txt`, `brokenFileList.txt`, `progress.txt`, `game.7z` |
+
+Flow from strings: download `{base}/HashFile.txt` → parse (JSON; errors mention `json file format md5 error`) →
+build local file list cache → verify → write `brokenFileList.txt` → re-download broken pieces → extract.
+
+`default_url` (JSON key next to `browser_kernel`, banners, etc.) is the likely HashFile base, but it is **not**
+in `/api/version/list`. Guessed CDN paths next to the `.7z` all return S3 `AccessDenied`. Capturing a live
+Quick Repair (Wine + traffic) is still needed for the exact URL and JSON schema.
+
+### Package-local lists (not usable as-is)
+
+Inside the game `.7z`:
+
+- `verlist.txt`: `<asset_version>,<md5_of_md5list>,<md5list_size>`  
+  e.g. `3544783,3afbd358b509bbe533c4a30ba1443a8d,9813` (version matches YooAsset `PackageManifest_*_3544783`).
+- `md5list.txt`: lines `md5,size,relative_path` (115 entries). Paths still say `worldx.exe` / `worldx_Data/…`
+  (map to `Aniimo.exe` / `Aniimo_Data/…`). **Sizes/hashes disagree with the shipped files** for many PE
+  binaries (often +10624 bytes — likely post-list signing/overlay). Same staleness for
+  `Aniimo_Data/Plugins/x86_64/fpx_md5sums` vs current `FPX.dll`.
+
+So the embedded md5list is not a reliable verify source for the current build.
+
+### YooAsset cache (floors / world data) — what YACCGL Verify uses
+
+Missing floors and world meshes live in the YooAsset sandbox cache the game downloads on first
+launch (~22 GB listed in the current manifest; more may exist as raw/extra packages):
+
+```
+Aniimo_Data/Sandbox/CacheFiles/DefaultPackage/BundleFiles/{FileHash[0:2]}/{FileHash}/__data
+Aniimo_Data/Sandbox/CacheFiles/DefaultPackage/BundleFiles/{FileHash[0:2]}/{FileHash}/__info
+```
+
+Authoritative list: `PackageManifest_DefaultPackage_{ver}.bytes` under
+`Aniimo_Data/StreamingAssets/cvs/res/uab/win/DefaultPackage/` (or a newer copy in
+`Aniimo_Data/Sandbox/ManifestFiles/`). Header still says YooAsset **1.4.17** (`0x594F4F`), but the
+bundle table is a FunPlus compact layout (not stock `ReadUTF8` hashes):
+
+| Field | Encoding |
+|-------|----------|
+| count | `i32` |
+| name | `u8` length + ASCII (`.uab`) |
+| FileHash | 16 raw MD5 bytes → cache GUID = lowercase hex |
+| FileCRC | 4 raw CRC32 bytes (same byte order as YooAsset `HashUtility.ToString`) |
+| FileSize | `i32` |
+| refs | `u16` count + `i32` IDs |
+
+YACCGL Verify: parse that table → for each bundle, check `__data` size + CRC32 → delete the
+cache folder on failure so the next game launch re-downloads. Missing files are reported only
+(CDN URL for proactive repair still unknown; official Quick Repair `HashFile.txt` base is still
+uncaptured).
+
+Stock YooAsset 1.4.17 would use UTF-8 FileHash/FileCRC strings and `i64` sizes; Aniimo does not.
 
 ## Old notes (static analysis)
 - `GET {funplusApiServer}/api/version/conf?game_project=%1`

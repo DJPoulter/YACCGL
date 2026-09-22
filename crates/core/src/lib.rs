@@ -12,6 +12,7 @@ pub mod self_update;
 pub mod settings;
 pub mod space;
 pub mod steam;
+pub mod yoo;
 
 pub use error::{Error, Result};
 

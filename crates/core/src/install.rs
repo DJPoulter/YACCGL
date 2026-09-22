@@ -41,6 +41,8 @@ pub enum Progress {
     Downloading { done: u64, total: Option<u64> },
     Verifying { done: u64, total: u64 },
     Extracting { done: u64, total: u64 },
+    /// Checking YooAsset cache bundles against the package manifest.
+    Checking { done: u64, total: u64 },
 }
 
 pub fn read_state(dir: &Path) -> Option<InstallState> {

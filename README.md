@@ -32,7 +32,7 @@ the game directly, then sets up the Steam shortcut for you.
 7. Go back to Game Mode. Aniimo is in your library, set to run with Proton 10.
 
 The Steam account, Proton version, library artwork, launch options and
-**Repair** are under **☰ → Preferences**. After changing a shortcut setting, press **Update**
+**Verify** are under **☰ → Preferences**. After changing a shortcut setting, press **Update**
 next to the Steam shortcut to apply it.
 
 The download is about 340 MB. On first launch the game downloads the rest of its data
