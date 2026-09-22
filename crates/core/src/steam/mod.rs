@@ -8,7 +8,6 @@ pub mod artwork;
 pub mod binary_vdf;
 pub mod process;
 pub mod text_vdf;
-pub mod wine_reg;
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -21,24 +20,6 @@ pub const DEFAULT_COMPAT_TOOL: &str = "proton_10";
 
 /// Wine drive letter that points at the install directory; see [`Steam::map_game_drive`].
 pub const GAME_DRIVE: &str = "g:";
-
-/// Single-window size used unless the user picks another: the Steam Deck's screen.
-pub const DEFAULT_WINDOW_SIZE: (u32, u32) = (1280, 800);
-
-/// Name of the Wine virtual desktop YACCGL configures; see [`Steam::set_single_window`].
-/// Wine only applies the configured size to the desktop named "Default" (any other
-/// name fills the screen), which is also the name `winetricks vd` uses.
-const WINE_DESKTOP_NAME: &str = "Default";
-const WINE_EXPLORER_KEY: &str = "Software\\Wine\\Explorer";
-const WINE_DESKTOPS_KEY: &str = "Software\\Wine\\Explorer\\Desktops";
-
-/// Outcome of a change to the game's Proton prefix.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PrefixChange {
-    Applied,
-    /// The prefix doesn't exist yet and can't be prepared; retry after the first launch.
-    Pending,
-}
 
 const STEAMID64_BASE: u64 = 76_561_197_960_265_728;
 const FLATPAK_STEAM_ID: &str = "com.valvesoftware.Steam";
@@ -72,8 +53,6 @@ pub struct ShortcutSpec {
     /// Internal compat tool name such as `proton_10`, or `None` to leave Steam's default.
     pub compat_tool: Option<String>,
     pub artwork: bool,
-    /// Single-window size (see [`Steam::set_single_window`]), or `None` to turn it off.
-    pub single_window: Option<(u32, u32)>,
 }
 
 /// A command that starts the game the way Steam does; see [`Steam::game_launch`].
@@ -103,8 +82,6 @@ pub struct Registered {
     pub artwork: Vec<PathBuf>,
     /// Set when artwork was requested but could not be fetched.
     pub artwork_error: Option<String>,
-    /// Single-window mode couldn't be set up yet; it will be after the first launch.
-    pub single_window_pending: bool,
 }
 
 impl Steam {
@@ -314,9 +291,7 @@ impl Steam {
         // Aniimo needs the raw gamepad; Steam Input intercepts it otherwise.
         self.set_steam_input(user, appid, false)?;
         self.map_game_drive(appid, &spec.start_dir)?;
-        let single_window_pending = self.set_single_window(appid, spec.single_window, spec.compat_tool.as_deref())?
-            == PrefixChange::Pending;
-        Ok(Registered { appid, created, artwork, artwork_error, single_window_pending })
+        Ok(Registered { appid, created, artwork, artwork_error })
     }
 
     /// The Proton prefix Steam uses for a non-Steam shortcut. It always lives in the
@@ -467,66 +442,6 @@ impl Steam {
         .map(|(k, v)| (k.to_string(), v))
         .collect();
         Ok(GameLaunch { program, args, env, dir: PathBuf::from(install) })
-    }
-
-    /// Whether Proton has set up the game's prefix yet (it does so on first launch).
-    pub fn prefix_ready(&self, appid: u32) -> bool {
-        self.prefix_dir(appid).join("user.reg").is_file()
-    }
-
-    /// The single-window size YACCGL configured in the game's prefix, if any.
-    pub fn single_window(&self, appid: u32) -> Option<(u32, u32)> {
-        let reg = wine_reg::RegFile::parse(&fs::read_to_string(self.prefix_dir(appid).join("user.reg")).ok()?);
-        if reg.get(WINE_EXPLORER_KEY, "Desktop").as_deref() != Some(WINE_DESKTOP_NAME) {
-            return None;
-        }
-        let size = reg.get(WINE_DESKTOPS_KEY, WINE_DESKTOP_NAME)?;
-        let (w, h) = size.split_once('x')?;
-        Some((w.trim().parse().ok()?, h.trim().parse().ok()?))
-    }
-
-    /// Turn single-window mode on (`Some(size)`) or off for the game's prefix.
-    ///
-    /// Wine's virtual desktop puts every window the game opens, including its login
-    /// window, inside one window. In Game Mode, gamescope only gives keyboard focus to
-    /// the game's main window, so without this the on-screen keyboard can't type into
-    /// the login window.
-    ///
-    /// Before the first launch there's no prefix yet. Proton builds a new prefix by
-    /// copying its template and skipping files that already exist, so we seed
-    /// `user.reg` from the compat tool's template with the setting added. If that
-    /// template doesn't exist yet either, this returns [`PrefixChange::Pending`].
-    /// Wine rewrites `user.reg` while the game runs, so the game must be closed.
-    pub fn set_single_window(&self, appid: u32, size: Option<(u32, u32)>, tool: Option<&str>) -> Result<PrefixChange> {
-        let pfx = self.prefix_dir(appid);
-        let path = pfx.join("user.reg");
-        if !path.is_file() {
-            if size.is_none() {
-                return Ok(PrefixChange::Applied);
-            }
-            let template = tool
-                .and_then(|t| self.compat_tool_dir(t))
-                .map(|d| d.join("files/share/default_pfx/user.reg"))
-                .filter(|p| p.is_file());
-            let Some(template) = template else { return Ok(PrefixChange::Pending) };
-            fs::create_dir_all(&pfx).io_ctx(|| format!("creating {}", pfx.display()))?;
-            fs::copy(&template, &path).io_ctx(|| format!("creating {}", path.display()))?;
-        }
-        let src = fs::read_to_string(&path).io_ctx(|| format!("reading {}", path.display()))?;
-        let mut reg = wine_reg::RegFile::parse(&src);
-        match size {
-            Some((w, h)) => {
-                reg.set(WINE_EXPLORER_KEY, "Desktop", WINE_DESKTOP_NAME);
-                reg.set(WINE_DESKTOPS_KEY, WINE_DESKTOP_NAME, &format!("{w}x{h}"));
-            }
-            // Leave any other virtual desktop the user set up themselves.
-            None if reg.get(WINE_EXPLORER_KEY, "Desktop").as_deref() == Some(WINE_DESKTOP_NAME) => {
-                reg.remove(WINE_EXPLORER_KEY, "Desktop");
-            }
-            None => return Ok(PrefixChange::Applied),
-        }
-        write_backed_up(&path, reg.serialize().as_bytes())?;
-        Ok(PrefixChange::Applied)
     }
 
     /// Remove the shortcut, its compat tool mapping and artwork. Steam must not be running.
@@ -795,7 +710,6 @@ mod tests {
             launch_options: String::new(),
             compat_tool: Some(DEFAULT_COMPAT_TOOL.into()),
             artwork: false,
-            single_window: Some(DEFAULT_WINDOW_SIZE),
         }
     }
 
@@ -928,14 +842,11 @@ mod tests {
         assert_eq!(fs::read_link(link.with_file_name("z:")).unwrap(), PathBuf::from("/"));
     }
 
-    const TEMPLATE_REG: &str = "WINE REGISTRY Version 2\n;; All keys relative to \\\\User\\\\S-1-5-21-0-0-0-1000\n\n#arch=win64\n\n[Control Panel\\\\Desktop] 1700000000\n\"FontSmoothing\"=\"2\"\n";
-
-    /// Installs a fake "Proton 10.0" in a second Steam library with a template prefix.
+    /// Installs a fake "Proton 10.0" in a second Steam library.
     fn fake_proton(home: &Path, steam: &Steam) -> PathBuf {
         let lib = home.join("sdcard/SteamLibrary");
         let proton = lib.join("steamapps/common/Proton 10.0");
-        fs::create_dir_all(proton.join("files/share/default_pfx")).unwrap();
-        fs::write(proton.join("files/share/default_pfx/user.reg"), TEMPLATE_REG).unwrap();
+        fs::create_dir_all(&proton).unwrap();
         fs::create_dir_all(steam.root.join("steamapps/common/Proton 100.0")).unwrap();
         fs::write(
             steam.root.join("steamapps/libraryfolders.vdf"),
@@ -994,47 +905,6 @@ mod tests {
         assert!(steam.root.join("steamapps/compatdata/99").is_dir());
 
         assert!(steam.game_launch(99, &exe, "proton_9").is_err());
-    }
-
-    #[test]
-    fn single_window_before_first_launch_seeds_from_template() {
-        let home = tempfile::tempdir().unwrap();
-        let steam = fake_steam(home.path());
-        assert_eq!(steam.set_single_window(7, Some((1280, 800)), Some("proton_10")).unwrap(), PrefixChange::Pending);
-        assert!(!steam.prefix_ready(7));
-
-        fake_proton(home.path(), &steam);
-        assert_eq!(steam.set_single_window(7, Some((1280, 800)), Some("proton_10")).unwrap(), PrefixChange::Applied);
-        assert!(steam.prefix_ready(7));
-        assert_eq!(steam.single_window(7), Some((1280, 800)));
-        let reg = fs::read_to_string(steam.prefix_dir(7).join("user.reg")).unwrap();
-        assert!(reg.starts_with(TEMPLATE_REG), "template content must be kept as-is");
-        assert!(reg.contains("[Software\\\\Wine\\\\Explorer] "));
-        assert!(reg.contains("\"Desktop\"=\"Default\""));
-        assert!(reg.contains("\"Default\"=\"1280x800\""));
-    }
-
-    #[test]
-    fn single_window_toggles_on_existing_prefix_and_respects_user_desktops() {
-        let home = tempfile::tempdir().unwrap();
-        let steam = fake_steam(home.path());
-        fs::create_dir_all(steam.prefix_dir(7)).unwrap();
-        fs::write(steam.prefix_dir(7).join("user.reg"), TEMPLATE_REG).unwrap();
-
-        steam.set_single_window(7, Some((1920, 1080)), None).unwrap();
-        assert_eq!(steam.single_window(7), Some((1920, 1080)));
-        steam.set_single_window(7, None, None).unwrap();
-        assert_eq!(steam.single_window(7), None);
-
-        // A differently named virtual desktop the user set up themselves stays.
-        let path = steam.prefix_dir(7).join("user.reg");
-        let mut reg = wine_reg::RegFile::parse(&fs::read_to_string(&path).unwrap());
-        reg.set(WINE_EXPLORER_KEY, "Desktop", "Mine");
-        fs::write(&path, reg.serialize()).unwrap();
-        steam.set_single_window(7, None, None).unwrap();
-        assert_eq!(steam.single_window(7), None);
-        let reg = wine_reg::RegFile::parse(&fs::read_to_string(&path).unwrap());
-        assert_eq!(reg.get(WINE_EXPLORER_KEY, "Desktop").as_deref(), Some("Mine"));
     }
 
     #[test]

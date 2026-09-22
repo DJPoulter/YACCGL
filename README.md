@@ -31,7 +31,7 @@ the game directly, then sets up the Steam shortcut for you.
    because Steam overwrites its shortcut list when it exits.
 7. Go back to Game Mode. Aniimo is in your library, set to run with Proton 10.
 
-The Steam account, Proton version, library artwork, launch options, single-window mode and
+The Steam account, Proton version, library artwork, launch options and
 **Repair** are under **☰ → Preferences**. After changing a shortcut setting, press **Update**
 next to the Steam shortcut to apply it.
 
@@ -42,14 +42,12 @@ The download is about 340 MB. On first launch the game downloads the rest of its
 
 The game asks for your email in a FunPlus login dialog. In Game Mode, Steam only sends
 keyboard input to the game's main window, so the on-screen keyboard can't type into that
-dialog. What's built in:
+dialog.
 
-- **Log In button:** in Desktop Mode, press **Log In** next to the Steam shortcut. It opens
-  FunPlus's login window with the same settings Steam uses, so the login is saved for Game Mode.
-  Sign in — the window may close on its own when you're done; if not, close it yourself. Then
-  start Aniimo from Steam.
-- **Single window** (off by default, in Preferences): runs the game inside one fixed-size window.
-  It didn't fix the login window in Game Mode in testing, so it's opt-in only.
+In Desktop Mode, press **Log In** next to the Steam shortcut. It opens FunPlus's login
+window with the same settings Steam uses, so the login is saved for Game Mode. Sign in —
+the window may close on its own when you're done; if not, close it yourself. Then start
+Aniimo from Steam.
 
 If you skip or miss the email step, the game creates a guest account and doesn't ask again.
 
