@@ -1,11 +1,10 @@
 //! YooAsset cache verification for Aniimo's `DefaultPackage`.
 //!
-//! The game downloads ~20–40 GB of asset bundles. Stock YooAsset keeps them under
-//! `Aniimo_Data/Sandbox/CacheFiles/DefaultPackage/BundleFiles/{hash[0:2]}/{hash}/__data`.
-//! Under Proton the same tree can also appear in the Wine prefix
-//! (`…/compatdata/<appid>/pfx/drive_c/users/…/AppData/LocalLow/Aniimo/Aniimo/Sandbox/…`).
-//! FunPlus ships a PackageManifest that still advertises YooAsset 1.4.17 but uses a compact
-//! bundle table (u8 names, raw MD5 + CRC32).
+//! FunPlus keeps downloaded bundles next to the StreamingAssets package tree:
+//! `Aniimo_Data/cvs/res/uab/win/DefaultPackage/CacheBundleFiles/{hash[0:2]}/{hash}/cdata.uab`
+//! (stock YooAsset would use `Sandbox/…/BundleFiles/…/__data` instead).
+//! The PackageManifest still advertises YooAsset 1.4.17 but uses a compact bundle table
+//! (u8 names, raw MD5 + CRC32).
 
 use std::collections::HashMap;
 use std::fs::{self, File};
@@ -17,12 +16,21 @@ use crate::error::IoContext;
 use crate::{Error, Result, GAME_NAME};
 
 const MAGIC: u32 = 0x594F4F; // "YOO\0"
-const DATA_FILE: &str = "__data";
+/// FunPlus cache payload (preferred).
+const DATA_CDATA: &str = "cdata.uab";
+/// Stock YooAsset cache payload.
+const DATA_STOCK: &str = "__data";
 
 /// Built-in manifest under StreamingAssets (always present after install).
 const STREAMING_PACKAGE_DIR: &str =
     "Aniimo_Data/StreamingAssets/cvs/res/uab/win/DefaultPackage";
-/// Runtime cache + optional refreshed manifests (created on first game launch).
+/// Runtime cache FunPlus actually uses (under `Aniimo_Data/cvs`, not Sandbox).
+const FUNPLUS_CACHE_BUNDLE_FILES: &str =
+    "Aniimo_Data/cvs/res/uab/win/DefaultPackage/CacheBundleFiles";
+/// Same tree if the game mirrors under StreamingAssets.
+const STREAMING_CACHE_BUNDLE_FILES: &str =
+    "Aniimo_Data/StreamingAssets/cvs/res/uab/win/DefaultPackage/CacheBundleFiles";
+/// Runtime cache + optional refreshed manifests (stock YooAsset layout).
 const SANDBOX_MANIFEST_DIR: &str = "Aniimo_Data/Sandbox/ManifestFiles";
 const SANDBOX_BUNDLE_FILES: &str =
     "Aniimo_Data/Sandbox/CacheFiles/DefaultPackage/BundleFiles";
@@ -52,7 +60,7 @@ pub enum BundleStatus {
 pub struct CheckedBundle {
     pub bundle: Bundle,
     pub status: BundleStatus,
-    /// Directory containing `__data` / `__info`, when it exists.
+    /// Directory containing `cdata.uab` / `__data`, when it exists.
     pub cache_dir: PathBuf,
 }
 
@@ -63,7 +71,7 @@ pub struct VerifyReport {
     pub checked: Vec<CheckedBundle>,
     /// Where cache entries were read from, if any tree was found.
     pub cache_root: Option<PathBuf>,
-    /// Number of `__data` folders present under `cache_root` (any GUID).
+    /// Number of cache folders present under `cache_root` (any GUID).
     pub cache_entries_on_disk: usize,
 }
 
@@ -94,7 +102,7 @@ impl VerifyReport {
         // No cache tree at all — game has never finished downloading world data.
         if self.cache_root.is_none() || (self.cache_entries_on_disk == 0 && missing == total) {
             return format!(
-                "No downloaded game cache found yet ({total} bundles). Launch Aniimo once to download world data, then Verify again."
+                "No world-data cache yet ({total} bundles). Launch Aniimo from Steam and let it download (~22 GB), then Verify again."
             );
         }
 
@@ -148,7 +156,8 @@ pub fn verify(
             .get(&bundle.file_hash)
             .cloned()
             .unwrap_or_else(|| expected_cache_dir(cache_root.as_deref(), &bundle.file_hash));
-        let data_path = cache_dir.join(DATA_FILE);
+        let data_path = data_file_in(&cache_dir)
+            .unwrap_or_else(|| cache_dir.join(DATA_CDATA));
         let status = check_bundle(&bundle, &data_path, cancel)?;
         done = done.saturating_add(bundle.file_size.max(1));
         on(done.min(total), total);
@@ -178,6 +187,16 @@ fn expected_cache_dir(root: Option<&Path>, file_hash: &str) -> PathBuf {
         Some(root) => root.join(folder).join(file_hash),
         None => PathBuf::from(folder).join(file_hash),
     }
+}
+
+fn data_file_in(dir: &Path) -> Option<PathBuf> {
+    for name in [DATA_CDATA, DATA_STOCK] {
+        let p = dir.join(name);
+        if p.is_file() {
+            return Some(p);
+        }
+    }
+    None
 }
 
 fn check_bundle(bundle: &Bundle, data_path: &Path, cancel: &AtomicBool) -> Result<BundleStatus> {
@@ -243,6 +262,9 @@ fn resolve_cache(install_dir: &Path) -> (Option<PathBuf>, HashMap<String, PathBu
 
 fn cache_root_candidates(install_dir: &Path) -> Vec<PathBuf> {
     let mut out = Vec::new();
+    // FunPlus layout first (what Aniimo actually writes on Deck).
+    out.push(install_dir.join(FUNPLUS_CACHE_BUNDLE_FILES));
+    out.push(install_dir.join(STREAMING_CACHE_BUNDLE_FILES));
     out.push(install_dir.join(SANDBOX_BUNDLE_FILES));
 
     // Proton/Wine: Unity persistentDataPath under LocalLow (company/product = Aniimo).
@@ -253,7 +275,6 @@ fn cache_root_candidates(install_dir: &Path) -> Vec<PathBuf> {
         for user in ["steamuser", "deck", "user"] {
             out.push(pfx.join(LOCALLOW_BUNDLE_FILES.replace("{user}", user)));
         }
-        // Any other Windows user profile under the prefix.
         let users = pfx.join("drive_c/users");
         if let Ok(rd) = fs::read_dir(users) {
             for ent in rd.flatten() {
@@ -269,12 +290,12 @@ fn cache_root_candidates(install_dir: &Path) -> Vec<PathBuf> {
         }
     }
 
-    // Last resort: find BundleFiles dirs under the install tree (cheap dir walk).
-    out.extend(find_bundle_files_dirs(&install_dir.join("Aniimo_Data"), 6));
+    // Last resort: find BundleFiles / CacheBundleFiles dirs under Aniimo_Data.
+    out.extend(find_cache_dirs(&install_dir.join("Aniimo_Data"), 8));
     out
 }
 
-fn find_bundle_files_dirs(root: &Path, max_depth: usize) -> Vec<PathBuf> {
+fn find_cache_dirs(root: &Path, max_depth: usize) -> Vec<PathBuf> {
     let mut found = Vec::new();
     let mut stack = vec![(root.to_path_buf(), 0usize)];
     while let Some((dir, depth)) = stack.pop() {
@@ -285,13 +306,14 @@ fn find_bundle_files_dirs(root: &Path, max_depth: usize) -> Vec<PathBuf> {
                 continue;
             }
             let path = ent.path();
-            if ent.file_name().eq_ignore_ascii_case("BundleFiles") {
+            let name = ent.file_name();
+            let name = name.to_string_lossy();
+            if name.eq_ignore_ascii_case("CacheBundleFiles")
+                || name.eq_ignore_ascii_case("BundleFiles")
+            {
                 found.push(path.clone());
             }
             if depth < max_depth {
-                // Skip known huge / irrelevant trees.
-                let name = ent.file_name();
-                let name = name.to_string_lossy();
                 if name.eq_ignore_ascii_case("il2cpp_data")
                     || name.eq_ignore_ascii_case("Plugins")
                     || name.eq_ignore_ascii_case("Resources")
@@ -305,7 +327,7 @@ fn find_bundle_files_dirs(root: &Path, max_depth: usize) -> Vec<PathBuf> {
     found
 }
 
-/// Map lowercase 32-char GUID → cache folder (the directory that contains `__data`).
+/// Map lowercase 32-char GUID → cache folder (the directory that contains the payload).
 fn index_cache_root(root: &Path) -> HashMap<String, PathBuf> {
     let mut map = HashMap::new();
     let Ok(shards) = fs::read_dir(root) else {
@@ -315,13 +337,13 @@ fn index_cache_root(root: &Path) -> HashMap<String, PathBuf> {
         let Ok(ft) = shard.file_type() else { continue };
         let path = shard.path();
         if ft.is_dir() {
-            // Sharded layout: BundleFiles/ab/abcd…/__data
+            // Sharded layout: …/ab/abcd…/cdata.uab
             if let Ok(children) = fs::read_dir(&path) {
                 for child in children.flatten() {
                     maybe_insert_cache_entry(&mut map, &child.path());
                 }
             }
-            // Unsharded: BundleFiles/<guid>/__data
+            // Unsharded: …/<guid>/cdata.uab
             maybe_insert_cache_entry(&mut map, &path);
         }
     }
@@ -336,7 +358,7 @@ fn maybe_insert_cache_entry(map: &mut HashMap<String, PathBuf>, dir: &Path) {
     if key.len() != 32 || !key.chars().all(|c| c.is_ascii_hexdigit()) {
         return;
     }
-    if dir.join(DATA_FILE).is_file() {
+    if data_file_in(dir).is_some() {
         map.entry(key).or_insert_with(|| dir.to_path_buf());
     }
 }
@@ -352,8 +374,9 @@ fn find_manifest(install_dir: &Path) -> Result<PathBuf> {
     let mut dirs = vec![
         install_dir.join(SANDBOX_MANIFEST_DIR),
         install_dir.join(STREAMING_PACKAGE_DIR),
+        // FunPlus also keeps package files under Aniimo_Data/cvs (next to CacheBundleFiles).
+        install_dir.join("Aniimo_Data/cvs/res/uab/win/DefaultPackage"),
     ];
-    // Proton LocalLow manifests
     let exe = install_dir.join(crate::DEFAULT_EXE);
     let appid = crate::steam::appid_for(&exe, GAME_NAME);
     for steam in crate::steam::Steam::detect() {
@@ -433,7 +456,6 @@ fn find_and_parse_bundles(data: &[u8]) -> Option<Vec<Bundle>> {
     let mut from = 0usize;
     while let Some(rel) = data[from..].windows(4).position(|w| w == b".uab") {
         let end = from + rel + 4;
-        // Walk back a plausible ASCII name to a u8 length prefix, then to the table count.
         for nlen in (5usize..=200).rev() {
             if end < nlen + 5 {
                 continue;
@@ -583,7 +605,6 @@ mod tests {
 
     #[test]
     fn crc_hex_is_le_bytes() {
-        // crc32("hello") = 0x3610a686 → LE bytes hex "86a61036"
         let dir = tempfile::tempdir().unwrap();
         let p = dir.path().join("t");
         fs::write(&p, b"hello").unwrap();
@@ -592,33 +613,43 @@ mod tests {
     }
 
     #[test]
-    fn indexes_sharded_cache_layout() {
+    fn indexes_funplus_cdata_layout() {
         let dir = tempfile::tempdir().unwrap();
-        let root = dir.path().join("BundleFiles");
+        let root = dir.path().join("CacheBundleFiles");
         let guid = "a1b2c3d4e5f60718293a4b5c6d7e8f90";
         let folder = root.join(&guid[..2]).join(guid);
         fs::create_dir_all(&folder).unwrap();
-        fs::write(folder.join(DATA_FILE), b"x").unwrap();
+        fs::write(folder.join(DATA_CDATA), b"x").unwrap();
         let idx = index_cache_root(&root);
         assert_eq!(idx.get(guid), Some(&folder));
     }
 
     #[test]
-    fn resolve_prefers_populated_root() {
+    fn indexes_stock_data_layout() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("BundleFiles");
+        let guid = "a1b2c3d4e5f60718293a4b5c6d7e8f90";
+        let folder = root.join(&guid[..2]).join(guid);
+        fs::create_dir_all(&folder).unwrap();
+        fs::write(folder.join(DATA_STOCK), b"x").unwrap();
+        let idx = index_cache_root(&root);
+        assert_eq!(idx.get(guid), Some(&folder));
+    }
+
+    #[test]
+    fn resolve_prefers_populated_funplus_root() {
         let dir = tempfile::tempdir().unwrap();
         let install = dir.path();
         fs::create_dir_all(install.join("Aniimo_Data")).unwrap();
-        // Empty default sandbox root.
         fs::create_dir_all(install.join(SANDBOX_BUNDLE_FILES)).unwrap();
-        // Populated alternate BundleFiles under Aniimo_Data.
-        let alt = install.join("Aniimo_Data/Somewhere/BundleFiles");
+        let funplus = install.join(FUNPLUS_CACHE_BUNDLE_FILES);
         let guid = "0123456789abcdef0123456789abcdef";
-        let folder = alt.join(&guid[..2]).join(guid);
+        let folder = funplus.join(&guid[..2]).join(guid);
         fs::create_dir_all(&folder).unwrap();
-        fs::write(folder.join(DATA_FILE), b"x").unwrap();
+        fs::write(folder.join(DATA_CDATA), b"x").unwrap();
 
         let (root, index) = resolve_cache(install);
-        assert_eq!(root.as_deref(), Some(alt.as_path()));
+        assert_eq!(root.as_deref(), Some(funplus.as_path()));
         assert_eq!(index.len(), 1);
     }
 }

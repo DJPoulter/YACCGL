@@ -924,13 +924,31 @@ impl App {
             a.refresh();
             match result {
                 Ok(Ok(report)) => {
-                    // Longer timeout so the path / "launch once" guidance is readable.
-                    a.ui.toasts.add_toast(
-                        adw::Toast::builder()
-                            .title(report.summary())
-                            .timeout(8)
-                            .build(),
-                    );
+                    let empty_cache = report.cache_root.is_none()
+                        || (report.cache_entries_on_disk == 0
+                            && report.missing_count() == report.checked.len());
+                    if empty_cache {
+                        // Toast truncates; this needs the full "launch & download" guidance.
+                        a.error(
+                            "No world data downloaded yet",
+                            &format!(
+                                "Verify looked for cache files under \
+                                 Aniimo_Data/cvs/…/CacheBundleFiles and found none of the {} bundles.\n\n\
+                                 Launch Aniimo from Steam and let it finish downloading world data \
+                                 (~22 GB). If it refuses or stalls, press Add to Steam again so the \
+                                 free-space fix (G: drive) is in place, then retry.\n\n\
+                                 After the download finishes, run Verify again.",
+                                report.checked.len()
+                            ),
+                        );
+                    } else {
+                        a.ui.toasts.add_toast(
+                            adw::Toast::builder()
+                                .title(report.summary())
+                                .timeout(8)
+                                .build(),
+                        );
+                    }
                 }
                 Ok(Err(Error::Cancelled)) => a.toast("Verify cancelled"),
                 Ok(Err(e)) => a.error("Verify failed", &e.to_string()),

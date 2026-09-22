@@ -36,6 +36,11 @@
     <display_length compare="ge">360</display_length>
   </requires>
   <releases>
+    <release version="0.1.13" date="2026-09-22">
+      <description>
+        <p>Verify looks in FunPlus's real cache path (Aniimo_Data/cvs/…/CacheBundleFiles/…/cdata.uab) instead of the stock YooAsset Sandbox layout.</p>
+      </description>
+    </release>
     <release version="0.1.12" date="2026-09-22">
       <description>
         <p>Verify finds the YooAsset cache under Proton's LocalLow path as well as the install folder, and explains clearly when no world data has been downloaded yet.</p>

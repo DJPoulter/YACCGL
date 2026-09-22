@@ -92,15 +92,14 @@ So the embedded md5list is not a reliable verify source for the current build.
 Missing floors and world meshes live in the YooAsset sandbox cache the game downloads on first
 launch (~22 GB listed in the current manifest; more may exist as raw/extra packages):
 
+FunPlus (confirmed on Steam Deck install) writes:
+
 ```
-Aniimo_Data/Sandbox/CacheFiles/DefaultPackage/BundleFiles/{FileHash[0:2]}/{FileHash}/__data
-Aniimo_Data/Sandbox/CacheFiles/DefaultPackage/BundleFiles/{FileHash[0:2]}/{FileHash}/__info
+Aniimo_Data/cvs/res/uab/win/DefaultPackage/CacheBundleFiles/{FileHash[0:2]}/{FileHash}/cdata.uab
 ```
 
-Under Proton the same tree often lands in the Wine prefix instead
-(`…/compatdata/<appid>/pfx/drive_c/users/<user>/AppData/LocalLow/Aniimo/Aniimo/Sandbox/…`).
-Verify picks the fullest `BundleFiles` root it can see (install Sandbox, LocalLow, or a discovered
-`BundleFiles` under `Aniimo_Data`).
+Stock YooAsset would use `Aniimo_Data/Sandbox/CacheFiles/…/BundleFiles/…/__data` instead; Aniimo
+does not. Verify prefers `CacheBundleFiles` + `cdata.uab`, and still accepts the stock layout.
 
 Authoritative list: `PackageManifest_DefaultPackage_{ver}.bytes` under
 `Aniimo_Data/StreamingAssets/cvs/res/uab/win/DefaultPackage/` (or a newer copy in
